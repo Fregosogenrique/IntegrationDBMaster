@@ -1,0 +1,1 @@
+#Archivo para analisis de datos de la base de datos de productos
