@@ -2,13 +2,97 @@
 
 *Revisión de `Ciclico_1522_investigado.xlsx`, un Cíclico por marca con la estructura de `Ciclico_1522_Stetson.xlsx` e investigación en línea de los datos faltantes*
 
-Resultado: un archivo `Ciclico_1522_<Marca>.xlsx` por marca en la raíz del repositorio. Se genera con `python3 homologar_ciclico_g1522.py` (≈8 minutos). La investigación se actualiza con `python3 investigar_web_g1522.py`.
+Resultado: un archivo `Ciclico_1522_<Marca>.xlsx` por marca en la raíz del repositorio, con el inventario actual de cada artículo. Se genera con `python3 homologar_ciclico_g1522.py` (≈8 minutos). La investigación se actualiza con `python3 investigar_web_g1522.py`.
 
-## 1. Archivos por marca
+## 1. Inventario actual por marca
+
+Cada Cíclico por marca reúne el inventario de todas las fuentes del repositorio, homologado al mismo artículo:
+
+| Fuente | Corte | Uso |
+|----|----|----|
+| `Catalogo_Estandar_Inventario_NetSuite_2026-10-06.xlsx` | 06/10/2026 14:25 | Inventario del sistema por ubicación: en mano, disponible, comprometido, en pedido, en tránsito y pendiente por surtir. Es el inventario oficial |
+| `Ciclico_1522_investigado.xlsx`, hoja Stock por Ubicación | NetSuite 28/09/2026 | Corte anterior para medir el movimiento neto |
+| `Products.csv` (Shopify Ariat) | 05/10/2026 | Existencia por tienda Ariat: en mano, disponible, comprometido y por llegar |
+| `Ciclico_1522_investigado.xlsx`, hoja Stock por Ubicación | 01/10/2026 | Shopify Stetson México, Shopify Western Brothers y Odoo Universal Unique Brands |
+| Hoja Escaneos del Cíclico | 09/09/2026 | Piezas contadas en rack |
+
+**Cómo se integra en la estructura del Cíclico.**
+
+- **Productos:** las columnas de existencia (Stock Sistema NetSuite, Disponible, ubicaciones con stock, ubicaciones en negativo, precios vigentes) quedan al corte del 06/10.
+  - Se agregaron a su marca los 100 artículos nuevos de NetSuite que no estaban en el Cíclico.
+  - Un campo vacío del Cíclico se completa con lo capturado en NetSuite; nunca se sobrescribe un valor.
+  - La tienda Shopify Ariat se agregó a «📍 Ubicación en plataformas» y a «Ubicaciones con stock (plataformas)».
+- **Stock por Ubicación:** se rehízo con el inventario actual, que alimenta solo a Bodega 25, Bodega 43 y Criterios:
+  - NetSuite 06/10, todos los renglones con existencia distinta de 0.
+  - Shopify Ariat por tienda.
+  - Las plataformas del 01/10.
+- **Hoja nueva «Inventario»:** lista para usarse en Sheets, con un renglón por artículo de la marca que tiene existencia, comprometido, tránsito, existencia en plataformas, conteo o que tenía existencia al 28/09. Trae:
+  - Identificación del artículo y precios.
+  - Totales NetSuite y en mano en ubicaciones inactivas.
+  - Ubicaciones en negativo.
+  - En mano al 28/09 y variación neta (fórmula).
+  - Plataformas y conteo cíclico.
+  - Valor a costo y a precio de venta (fórmula).
+  - Estado del inventario.
+  - Una columna por ubicación de NetSuite y por tienda Shopify Ariat.
+  - Los artículos cuya única señal es una orden de compra abierta no entran; sus unidades se reportan en los KPIs.
+- **Hoja nueva «KPIs Inventario»:** fórmulas sobre la hoja Inventario, que se recalculan al editarla en Sheets:
+  - Existencia, disponible, comprometido, tránsito, en pedido, negativos y valor.
+  - Movimiento neto 28/09 → 06/10: entradas, salidas, artículos que bajaron, subieron o se agotaron.
+  - Existencia en plataformas y conteo cíclico.
+  - Tabla por ubicación con bodega, entradas y salidas netas.
+  - Tiendas Ariat: NetSuite contra Shopify.
+  - Tablas por división y por categoría.
+  - Los 15 artículos con más existencia y los 15 con más salida.
+
+| Archivo | Artículos en Inventario | Con existencia | En mano 06/10 | Disponible | Comprometido | En negativo | En mano 28/09 | Entradas netas | Salidas netas | En plataformas | Valor a costo |
+|----|----|----|----|----|----|----|----|----|----|----|----|
+| Ariat | 9,557 | 8,544 | 47,524 | 46,594 | 778 | 168 | 41,794 | 6,848 | −1,118 | 21,020 | $15,403,622 |
+| Happy Socks | 210 | 210 | 15,152 | 15,026 | 0 | 0 | 15,152 | 0 | 0 | 0 | $1,088,573 |
+| CAPSLAB | 292 | 292 | 10,381 | 10,385 | 0 | 0 | 10,381 | 0 | 0 | 0 | $21,662 |
+| REFLO | 275 | 275 | 3,886 | 3,885 | 0 | 0 | 3,886 | 0 | 0 | 0 | $72,261 |
+| Stetson | 1,695 | 573 | 1,324 | 2,629 | 471 | 653 | 687 | 868 | −231 | 5,014 | $647,619 |
+| Ranch & Corral | 19 | 19 | 946 | 251 | 695 | 0 | 4 | 942 | 0 | 4 | $260,415 |
+| Denver | 124 | 115 | 291 | 296 | 0 | 5 | 299 | 3 | −11 | 300 | $128,538 |
+| Generico | 10 | 9 | 254 | 258 | 0 | 0 | 259 | 0 | −5 | 63 | $35,390 |
+| Montana West + Wrangler | 759 | 109 | 249 | 307 | 0 | 30 | 252 | 15 | −18 | 24,125 | $109,607 |
+| Yellowstone | 11 | 7 | 182 | 42 | 140 | 0 | 0 | 182 | 0 | 10 | $55,930 |
+| Willow Lane | 39 | 38 | 100 | 100 | 0 | 0 | 103 | 0 | −3 | 103 | $30,380 |
+| Tru Western | 47 | 12 | 59 | 59 | 0 | 0 | 59 | 0 | 0 | 632 | $17,563 |
+| Roper | 262 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2,596 | $0 |
+| Sin marca | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 109 | $0 |
+| **Total** | **13,306** | **10,203** | **80,348** | **79,832** | **2,084** | **856** | **72,876** | **8,858** | **−1,386** | **53,976** | **$17,871,560** |
+
+**Controles que cuadran.**
+
+| Comparación | Unidades | Fuente |
+|----|----|----|
+| En mano 06/10 de los 14 archivos (Inventario y Productos) | 80,348 | Mismo total que el Resumen de NetSuite |
+| Corte 28/09 | 72,876 | Mismo total que el Stock por Ubicación NetSuite del Cíclico |
+| Shopify Ariat | 19,023 | Mismo total que `Products.csv` |
+| Plataformas del 01/10 | 34,953 | Mismo total que el Cíclico |
+
+Los renglones de NetSuite y de Shopify Ariat quedaron ligados al 100 % a un artículo.
+
+**Al leer las cifras.**
+
+- **Entradas y salidas** son netas por artículo y ubicación entre los dos cortes de NetSuite. No son el detalle de transacciones, que no viene en los archivos.
+- **Valor a costo:** usa el precio de compra de NetSuite. En Ariat hay costos que parecen estar en dólares (aviso en Notas), así que ese valor está subestimado.
+- **Roper y Sin marca** no tienen existencia en NetSuite; su inventario está en Odoo y Shopify.
+- **NetSuite contra Shopify Ariat:** la comparación por tienda empareja ubicaciones por nombre (p. ej. «Nogales Store» con «Ariat Ecuestre Nogales»). Hay que confirmar que correspondan.
+
+**Hallazgos del Cíclico al integrar el inventario.**
+
+- **Columna de existencia inflada:** en Happy Socks, CAPSLAB y REFLO, «Stock Sistema NetSuite» de Productos no cuadraba con su propio desglose por ubicación. Sumaba 58,978, 15,380 y 8,872 contra 15,152, 10,381 y 3,886. El corte anterior se tomó del desglose.
+- **IDs en «0»:** 236 renglones de stock del 28/09 tenían código e ID en «0»; el ID real se recuperó del texto de origen.
+- **Duplicados del ERP:** dos sombreros Stetson tienen el mismo código de barras con dos IDs en NetSuite. Su existencia se suma al mismo registro, como indica la hoja Duplicados de NetSuite.
+- **Prioridad al integrar:** al fundir duplicados manda el artículo que existe en NetSuite, para que el código y la existencia del ERP queden en el registro principal.
+
+## 2. Archivos por marca
 
 Cada archivo repite la estructura de `Ciclico_1522_Stetson.xlsx`:
 
-- **Hojas:** las mismas 12, sin hojas nuevas: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
+- **Hojas:** las mismas 12, más «Inventario» y «KPIs Inventario» al final: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
 - **Productos:** las mismas 44 columnas, con una fila por variante, igual que la plantilla. Los padres o agrupadores no van en Productos.
 - **Funcionamiento:** las mismas fórmulas, listas desplegables, formatos condicionales y tablas. Los rangos fijos de la plantilla (`$2502`, `$24792`, `65990`) se ajustan al tamaño de cada marca.
 
@@ -44,7 +128,7 @@ Válido, con avisos y con incidencias corresponden a la validación G1522 comple
 
 **Los archivos son la versión de trabajo.** Lo que se corrija a mano en los 26 atributos de cualquier `Ciclico_1522_<Marca>.xlsx` se conserva al regenerar. Por ejemplo, se conservaron los SKU `2XL` → `XXL` y las licencias capturadas en Stetson. Existencias, ubicaciones y escaneos siempre se toman del Cíclico integrado.
 
-## 2. Cómo se trató cada campo
+## 3. Cómo se trató cada campo
 
 Se respetan Criterios (hoja Criterios del Cíclico) y `Anatomia_productos_atributos_G1522.md`. El campo vacío queda realmente vacío, sin «No Aplica». Lo que no tiene evidencia no se inventa.
 
@@ -61,7 +145,7 @@ Se respetan Criterios (hoja Criterios del Cíclico) y `Anatomia_productos_atribu
 
 Cada cambio queda en «Notas de enriquecimiento / revisión» de su fila con este formato: `Homologación G1522 06/10/2026: campo «antes» → «después» (tipo)`. La misma nota trae la validación G1522, por ejemplo dígito de control inválido o costo posiblemente en dólares, y el resultado de los validadores NetSuite/Odoo y Shopify cuando fallan.
 
-## 3. Productos iguales integrados en uno
+## 4. Productos iguales integrados en uno
 
 Se funden en un registro (213 integraciones):
 
@@ -73,7 +157,7 @@ Si el SKU o el código coinciden pero el estilo, la talla o el color son distint
 
 Se conserva el registro con código válido y mejor origen. Sus campos vacíos se completan con los otros, las existencias se suman y las ubicaciones se unen. En «🔍 Panel de Duplicados» del registro conservado se indica cuántos integró y los códigos alternos. Los registros originales quedan completos en la hoja Revisión Duplicados, con la fuente «registro conservado» o «registro integrado».
 
-## 4. Investigación en línea
+## 5. Investigación en línea
 
 `investigar_web_g1522.py` descargó los catálogos públicos de las marcas y sus distribuidores y consultó ariat.com por número de estilo. Resultado: `Investigacion_web_G1522.csv`, con 33,562 datos de productos del catálogo; cada uno trae llave, campo, valor, URL y evidencia.
 
@@ -123,7 +207,7 @@ La URL queda en «Fuentes de consulta» de la fila: `Investigación en línea 06
 | CAPSLAB, Roper, Denver, Tru Western, Ranch & Corral, Yellowstone | No publican un catálogo consultable |
 | Ariat descontinuado | 3,254 estilos ya no están publicados en ariat.com |
 
-## 5. Revisión del archivo Cíclico
+## 6. Revisión del archivo Cíclico
 
 | Hallazgo | Detalle |
 |----|----|
@@ -136,7 +220,7 @@ La URL queda en «Fuentes de consulta» de la fila: `Investigación en línea 06
 | Costos que parecen estar en dólares | 7,053 (11 a 20 contra venta de ~1,449) |
 | Valores fuera de Criterios | `CORE`, `Pieza`, `MX`, `USA`, `(blank)`, `STETSON`, licencias con dos escrituras, coma decimal |
 
-## 6. Diferencias entre documentos
+## 7. Diferencias entre documentos
 
 Se siguieron Criterios y Anatomía, que son la autoridad de captura:
 
@@ -149,7 +233,7 @@ Se siguieron Criterios y Anatomía, que son la autoridad de captura:
 
 Las listas desplegables de la plantilla (Criterios 12) incluyen «No Aplica». Se dejaron como están para no cambiar la estructura, pero los datos usan vacío, como pide la Anatomía.
 
-## 7. Pendientes
+## 8. Pendientes
 
 1. Happy Socks: estilo, SKU, descripción y clasificación de 359 variantes, que en NetSuite solo tienen código de barras.
 2. REFLO: 367 variantes en la misma situación. La tienda solo cubrió las que siguen a la venta.
@@ -157,3 +241,5 @@ Las listas desplegables de la plantilla (Criterios 12) incluyen «No Aplica». S
 4. Asignar marca a las 113 variantes de `Sin_Marca`.
 5. Revisar en cada archivo las notas «Completado por regla» y «Completado por investigación en línea»: son propuestas con evidencia y requieren confirmación.
 6. Decidir si los códigos Stetson de 17 dígitos se reemplazan por UPC del proveedor.
+7. Confirmar las existencias negativas, sobre todo STETSON AMERICAS (−803 unidades de Stetson).
+8. Confirmar la pareja de tiendas NetSuite–Shopify Ariat antes de usar la comparación por tienda.

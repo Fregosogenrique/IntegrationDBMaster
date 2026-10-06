@@ -26,6 +26,9 @@ Secuencia (Estructura_datos_validaciones_G1522.md, «Secuencia de validación y 
   6. Resolver   - cada cambio queda en «Notas de enriquecimiento / revisión» de su fila y
                   cada fuente web en «Fuentes de consulta».
 
+  7. Inventario  - existencias de Productos y Stock por Ubicación al corte NetSuite 06/10,
+                  más las hojas «Inventario» y «KPIs Inventario» (inventario_g1522.py).
+
 Uso:    python3 homologar_ciclico_g1522.py [Marca ...]
 Salida: Ciclico_1522_<Marca>.xlsx en esta carpeta (Montana West y Wrangler juntos).
 """
@@ -39,6 +42,7 @@ from pathlib import Path
 import pandas as pd
 
 import homologar_ariat_g1522 as g
+import inventario_g1522 as inv
 
 BASE = Path(__file__).resolve().parent
 CICLICO = BASE / "Ciclico_1522_investigado.xlsx"
@@ -50,6 +54,9 @@ FECHA = "06/10/2026"
 # Stock por Ubicación se escriben ya calculadas: sus fórmulas comparan cada fila contra
 # toda la columna y con decenas de miles de filas saturan el navegador.
 LIMITE_FORMULAS = 10000
+HOJAS_CICLICO = ["Escaneo Diario", "Historial de Escaneos", "Escaneos", "Configuración", "Productos",
+                 "Productos_Resumen", "Criterios", "Revisión Duplicados", "Stock por Ubicación",
+                 "Bodega 25", "Bodega 43", "Resumen Integración"]
 
 ATRIBUTOS = g.ATRIBUTOS
 CAMPOS_FUSION = [c for c in ATRIBUTOS if c not in ("Código de barras", "Identificador interno")]
@@ -581,8 +588,12 @@ def es_padre(df):
     return df["Origen del registro"].str.contains("padre", na=False)
 
 
+IDS_NETSUITE = set()  # IDs activos en NetSuite al corte actual; los llena main().
+
+
 def prioridad(r):
-    puntos = 0
+    # NetSuite es la fuente de verdad: su artículo se conserva por encima de cualquier otro.
+    puntos = 1000 if r["Identificador interno"] in IDS_NETSUITE else 0
     cb = r["Código de barras"]
     if cb.isdigit() and 12 <= len(cb) <= 14 and g.digito_control_gtin(cb):
         puntos += 100
@@ -706,7 +717,7 @@ def integrar_duplicados(df, rev):
                     rev.add(df.loc[p], c, o[c], actual, "Conflicto entre duplicados",
                             "Se conserva el valor del registro principal; validar",
                             f"ID {o['Identificador interno'] or '—'} · {o['Origen del registro']}")
-            for c in NUMERICAS:
+            for c in NUMERICAS + ["_ns_anterior"]:
                 a, b = g.numero(df.at[p, c]), g.numero(o[c])
                 if b is not None:
                     df.at[p, c] = f"{(a or 0) + b:g}"
@@ -986,10 +997,13 @@ def limpiar_desde(ws, fila, conservar=()):
 
 
 def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneos,
-                     duplicados, vivas):
+                     duplicados, vivas, inventario=None):
     import openpyxl
     from openpyxl.formatting.formatting import ConditionalFormattingList
     wb = openpyxl.load_workbook(io.BytesIO(plantilla))
+    for nombre in wb.sheetnames:  # Solo las 12 hojas del Cíclico; las de inventario se rehacen.
+        if nombre not in HOJAS_CICLICO:
+            del wb[nombre]
     n = len(productos) + 1
     m = len(stock) + 1
 
@@ -1101,6 +1115,8 @@ def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneo
             ws.cell(k, c, a_celda(col, str(v)) if c > 3 else v)._style = estilo[c]
     ws.auto_filter.ref = f"A1:AU{max(len(duplicados) + 1, 2)}"
 
+    if inventario:
+        inv.escribir_inventario(wb, *inventario, grupo)
     wb.properties.creator = AUTOR
     wb.save(ruta)
 
@@ -1115,6 +1131,25 @@ def main():
     columnas = [c for c in productos.columns if not c.startswith("_")]
     print(f"Cíclico: {len(productos)} filas con datos")
     productos["_uid"] = range(len(productos))
+
+    # Inventario al corte más reciente (NetSuite 06/10) y artículos nuevos de NetSuite.
+    catalogo_ns, detalle_ns, ubicaciones_ns = inv.leer_netsuite()
+    IDS_NETSUITE.update(set(catalogo_ns["Identificador interno"]) - {""})
+    # Existencia del corte anterior por artículo: la suma de su desglose por ubicación en el
+    # Cíclico (la columna «Stock Sistema NetSuite» de Productos no cuadra con ese desglose en
+    # Happy Socks, CAPSLAB y REFLO).
+    stock_28 = hojas["Stock por Ubicación"]
+    # Renglones con código e ID en «0»: el ID real viene en el texto de origen.
+    sin_id = stock_28["Identificador interno"].isin(["", "0"])
+    stock_28.loc[sin_id, "Identificador interno"] = stock_28.loc[sin_id, "Origen en Productos"] \
+        .str.extract(r"ID interno (\d+)")[0].fillna("")
+    stock_28.loc[stock_28["Código de barras"] == "0", "Código de barras"] = ""
+    ns_anterior = stock_28[stock_28["Sistema"] == "NetSuite"]
+    anterior_por_id = inv.numero(ns_anterior["Stock en ubicación (Físico)"]).groupby(
+        ns_anterior["Identificador interno"]).sum().to_dict()
+    shopify_ariat = inv.leer_shopify_ariat()
+    productos = inv.actualizar_existencias(productos, catalogo_ns, ATRIBUTOS, cambiar, rev,
+                                           len(productos), anterior_por_id)
 
     base_ariat, rev_ariat = leer_ariat()
     productos, ariat = integrar_base_ariat(productos, base_ariat, rev_ariat, rev)
@@ -1132,7 +1167,10 @@ def main():
     # División o Unidad de las categorías que llegaron de la web.
     completar_desde_web(productos, rev)
     g.normalizar(productos, rev)
+    llaves_originales = productos[["_uid", "Identificador interno", "Código de barras", "WB SKU",
+                                   "Shopify ID variante"]].copy()
     productos, destino, integrados = integrar_duplicados(productos, rev)
+    inv.recalcular_netsuite(productos, llaves_originales, destino, catalogo_ns, anterior_por_id)
     print(f"Tras integrar productos iguales: {len(productos)}")
     productos = validar(productos, criterios["parejas"])
 
@@ -1152,23 +1190,61 @@ def main():
     productos["Libro"] = productos.apply(marca_archivo, axis=1).map(grupo_de)
     variantes = productos[productos["Nivel G1522"] == "Variante"].copy()
 
-    # Stock por ubicación y escaneos, ligados al registro integrado por código, ID o SKU.
-    llave_cb = {}
-    for uid, principal, alternos in variantes[["_uid", "Código de barras",
-                                               "Códigos de barras alternos"]].itertuples(index=False):
-        for c in [principal] + alternos.split(" | "):
+    # Inventario, stock por ubicación y escaneos se ligan al registro integrado por ID de
+    # NetSuite, código de barras (también los alternos), SKU o ID de variante de Shopify;
+    # las llaves de los registros absorbidos apuntan al que los integró.
+    final = llaves_originales["_uid"].map(lambda u: destino.get(u, u))
+    vivos = set(variantes["_uid"])
+
+    def mapa(serie, transformar=lambda x: x):
+        m = {}
+        for valor, uid in zip(serie.map(transformar), final):
+            if valor and uid in vivos:
+                m.setdefault(valor, uid)
+        return m
+
+    uid_id = mapa(llaves_originales["Identificador interno"])
+    llave_cb = mapa(llaves_originales["Código de barras"], lambda x: x.lstrip("0"))
+    for uid, alternos in variantes[["_uid", "Códigos de barras alternos"]].itertuples(index=False):
+        for c in alternos.split(" | "):
             if c:
-                llave_cb[c.lstrip("0")] = uid
-    uid_id = variantes[variantes["Identificador interno"] != ""].drop_duplicates(
-        "Identificador interno").set_index("Identificador interno")["_uid"]
-    uid_sku = variantes[variantes["WB SKU"] != ""].drop_duplicates("WB SKU").set_index("WB SKU")["_uid"]
+                llave_cb.setdefault(c.lstrip("0"), uid)
+    uid_sku = mapa(llaves_originales["WB SKU"])
+    uid_variante = mapa(llaves_originales["Shopify ID variante"])
+
+    def ligar(tabla, cb, ident, sku, variante=None):
+        u = tabla[cb].str.lstrip("0").map(llave_cb)
+        if variante:
+            u = tabla[variante].map(uid_variante).fillna(u)
+        u = u.fillna(tabla[ident].map(uid_id)) if ident else u
+        return u.fillna(tabla[sku].map(uid_sku))
+
     libro_uid = variantes.set_index("_uid")["Libro"]
-    stock = hojas["Stock por Ubicación"].copy()
-    stock["uid"] = stock["Código de barras"].str.lstrip("0").map(llave_cb)
-    stock["uid"] = stock["uid"].fillna(stock["Identificador interno"].map(uid_id))
-    stock["uid"] = stock["uid"].fillna(stock["WB SKU"].map(uid_sku))
+    detalle_ns["uid"] = detalle_ns["Identificador interno"].map(uid_id)
+    detalle_ns["uid"] = detalle_ns["uid"].fillna(ligar(detalle_ns, "Código de barras", None, "WB SKU"))
+    shopify_ariat["uid"] = ligar(shopify_ariat, "Código de barras", None, "WB SKU", "Variant ID")
+    stock_ciclico = hojas["Stock por Ubicación"].copy()
+    stock_ciclico["uid"] = ligar(stock_ciclico, "Código de barras", "Identificador interno", "WB SKU")
+    anterior_ubicacion = stock_ciclico[stock_ciclico["Sistema"] == "NetSuite"].rename(
+        columns={"Ubicación (NetSuite / Plataforma)": "Ubicación"})
+    anterior_ubicacion["Stock"] = inv.numero(anterior_ubicacion["Stock en ubicación (Físico)"])
+    plataformas = stock_ciclico[stock_ciclico["Sistema"] != "NetSuite"].copy()
+    plataformas["Stock en ubicación (Físico)"] = inv.numero(plataformas["Stock en ubicación (Físico)"])
+    inv.marcar_shopify_ariat(productos, shopify_ariat)
+    variantes = productos[productos["Nivel G1522"] == "Variante"].copy()
+    anterior_total = pd.Series(inv.numero(variantes["_ns_anterior"]).to_numpy(), index=variantes["_uid"])
+    print(f"Inventario ligado: NetSuite {detalle_ns['uid'].notna().mean():.1%} de renglones, "
+          f"Shopify Ariat {shopify_ariat['uid'].notna().mean():.1%}")
+
+    stock = inv.stock_por_ubicacion(detalle_ns, stock_ciclico, shopify_ariat)
+    stock = stock[list(hojas["Stock por Ubicación"].columns) + ["uid"]]
     stock["Libro"] = stock["uid"].map(libro_uid).fillna(stock["WB Marca"].map(grupo_de))
+    ubic_info = {}
+    for _, u in ubicaciones_ns.iterrows():
+        tipo = criterios["bodegas"].get(u["Ubicación corta"]) or u["Tipo"]
+        ubic_info[u["Ubicación corta"]] = {"tipo": tipo, "activa": u["Activa"]}
     escaneos = hojas["Escaneos"].copy()
+    escaneos["Piezas Contadas"] = inv.numero(escaneos["Piezas Contadas"])
     escaneos["uid"] = escaneos["UPC CODE"].str.lstrip("0").map(llave_cb)
     escaneos["Libro"] = escaneos["uid"].map(libro_uid).fillna(escaneos["Marca"].map(grupo_de))
     dup = hojas["Revisión Duplicados"]
@@ -1207,8 +1283,12 @@ def main():
         stock_marca = stock[stock["Libro"] == grupo][
             list(hojas["Stock por Ubicación"].columns) + ["uid"]]
         escaneos_marca = escaneos[escaneos["Libro"] == grupo]
+        inventario, ubicaciones, tiendas, pedido = inv.tabla_inventario(
+            filas, detalle_ns, anterior_total, plataformas, shopify_ariat, escaneos)
+        movimientos = inv.movimientos_por_ubicacion(detalle_ns, anterior_ubicacion, uids)
         escribir_ciclico(ruta, plantilla, grupo, filas, columnas, stock_marca,
-                         escaneos_marca, filas_dup, vivas)
+                         escaneos_marca, filas_dup, vivas,
+                         (inventario, ubicaciones, tiendas, pedido, ubic_info, movimientos))
         estatus = filas["Estatus G1522"].value_counts()
         resumen.append({"Archivo": ruta.name, "Variantes": len(filas),
                         "Fórmulas vivas": "Sí" if vivas else "Validación calculada",
@@ -1217,6 +1297,8 @@ def main():
                         "Con incidencias": int(estatus.get("Con incidencias", 0)),
                         "Productos integrados": int((filas["Registros integrados"] != "").sum()),
                         "Stock por ubicación": len(stock_marca), "Escaneos": len(escaneos_marca),
+                        "Artículos en Inventario": len(inventario),
+                        "En mano NetSuite": int(inventario["En mano NetSuite"].sum()),
                         "MB": round(ruta.stat().st_size / 1e6, 2)})
         print(resumen[-1], flush=True)
     print(pd.DataFrame(resumen).to_string(index=False))
