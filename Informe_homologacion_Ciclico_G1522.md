@@ -1,155 +1,159 @@
-# Informe de revisión y homologación del Cíclico G1522
+# Informe de homologación del Cíclico G1522 por marca
 
-*Revisión de `Ciclico_1522_investigado.xlsx` y separación en bases por marca para Google Sheets*
+*Revisión de `Ciclico_1522_investigado.xlsx`, un Cíclico por marca con la estructura de `Ciclico_1522_Stetson.xlsx` e investigación en línea de los datos faltantes*
 
-Resultado: carpeta `Bases_Sheets_G1522/`, generada con `python3 homologar_ciclico_g1522.py` (≈2 minutos).
+Resultado: un archivo `Ciclico_1522_<Marca>.xlsx` por marca en la raíz del repositorio. Se genera con `python3 homologar_ciclico_g1522.py` (≈8 minutos). La investigación se actualiza con `python3 investigar_web_g1522.py`.
 
-## 1. Revisión del archivo Cíclico
+## 1. Archivos por marca
 
-### Por qué el archivo satura el navegador
+Cada archivo repite la estructura de `Ciclico_1522_Stetson.xlsx`:
 
-| Hallazgo | Detalle |
+- **Hojas:** las mismas 12, sin hojas nuevas: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
+- **Productos:** las mismas 44 columnas, con una fila por variante, igual que la plantilla. Los padres o agrupadores no van en Productos.
+- **Funcionamiento:** las mismas fórmulas, listas desplegables, formatos condicionales y tablas. Los rangos fijos de la plantilla (`$2502`, `$24792`, `65990`) se ajustan al tamaño de cada marca.
+
+| Archivo | Variantes | Válido | Con avisos | Con incidencias | Integrados | Stock por ubicación |
+|----|----|----|----|----|----|----|
+| `Ciclico_1522_Ariat.xlsx` | 49,058 | 32,782 | 15,669 | 607 | 112 | 17,582 |
+| `Ciclico_1522_Stetson.xlsx` | 2,508 | 1,451 | 233 | 824 | 0 | 3,970 |
+| `Ciclico_1522_Montana_West_Wrangler.xlsx` | 1,062 | 186 | 611 | 265 | 76 | 1,012 |
+| `Ciclico_1522_REFLO.xlsx` | 652 | 0 | 285 | 367 | 0 | 490 |
+| `Ciclico_1522_Happy_Socks.xlsx` | 570 | 0 | 211 | 359 | 0 | 252 |
+| `Ciclico_1522_CAPSLAB.xlsx` | 369 | 0 | 368 | 1 | 0 | 769 |
+| `Ciclico_1522_Roper.xlsx` | 284 | 0 | 283 | 1 | 0 | 262 |
+| `Ciclico_1522_Denver.xlsx` | 202 | 121 | 1 | 80 | 0 | 240 |
+| `Ciclico_1522_Sin_Marca.xlsx` | 113 | 0 | 0 | 113 | 0 | 6 |
+| `Ciclico_1522_Tru_Western.xlsx` | 51 | 3 | 24 | 24 | 25 | 96 |
+| `Ciclico_1522_Willow_Lane.xlsx` | 40 | 40 | 0 | 0 | 0 | 78 |
+| `Ciclico_1522_Ranch_Corral.xlsx` | 22 | 0 | 22 | 0 | 0 | 6 |
+| `Ciclico_1522_Generico.xlsx` | 11 | 0 | 1 | 10 | 0 | 21 |
+| `Ciclico_1522_Yellowstone.xlsx` | 4 | 0 | 0 | 4 | 0 | 7 |
+| **Total** | **54,946** | | | | **213** | **24,791** |
+
+Válido, con avisos y con incidencias corresponden a la validación G1522 completa. Su detalle está en «Notas de enriquecimiento / revisión».
+
+**Marca de cada archivo.** Se usa la Marca principal. Si es Multimarca o está vacía, manda WB Licencia; si la licencia no es una marca, WB Marca. Las filas sin marca la toman del mismo estilo, del nombre en la descripción o del prefijo del código del proveedor. Montana West y Wrangler comparten archivo. Las 113 filas sin evidencia de marca están en `Sin_Marca`.
+
+**Hojas derivadas por marca.**
+- **Stock por Ubicación:** solo trae los renglones de la marca, ligados por código, ID o SKU (los 24,791 quedan repartidos).
+- **Escaneos e Historial:** solo los folios con piezas de la marca (hoy solo Stetson).
+- **Revisión Duplicados:** los grupos del Cíclico de la marca y los registros que se integraron en uno.
+- **Productos_Resumen y Bodegas:** se calculan solas en Google Sheets.
+
+**Ariat y la memoria del navegador.** En la plantilla, Detalle de Discrepancias compara cada fila contra toda la columna (`COUNTIF`, `XMATCH`). La fila de Stock por Ubicación también se busca en todo Productos. Con las 49 mil variantes de Ariat son miles de millones de comparaciones: eso era lo que agotaba la memoria. En Ariat esas dos columnas se escriben ya calculadas, con la misma lógica de la fórmula; el resto de las fórmulas sigue vivo. En las demás marcas todo queda en fórmulas. Con Ariat no conviene reordenar Productos, porque Stock por Ubicación apunta al número de fila: es mejor usar filtros.
+
+**Los archivos son la versión de trabajo.** Lo que se corrija a mano en los 26 atributos de cualquier `Ciclico_1522_<Marca>.xlsx` se conserva al regenerar. Por ejemplo, se conservaron los SKU `2XL` → `XXL` y las licencias capturadas en Stetson. Existencias, ubicaciones y escaneos siempre se toman del Cíclico integrado.
+
+## 2. Cómo se trató cada campo
+
+Se respetan Criterios (hoja Criterios del Cíclico) y `Anatomia_productos_atributos_G1522.md`. El campo vacío queda realmente vacío, sin «No Aplica». Lo que no tiene evidencia no se inventa.
+
+| Regla | Aplicación |
 |----|----|
-| Rango declarado mucho mayor que los datos | La hoja Productos declara `A1:AR166905`, pero solo 65,790 filas tienen datos. Hay unas 101 mil filas vacías con formato que Sheets carga igual |
-| Fórmulas en cada fila | Estatus de Validación, Detalle de Discrepancias y Panel de Duplicados se calculan por fórmula. La cadena de cálculo ocupa 7.3 MB. Algunas apuntan a libros externos (`[2]Criterios`, `[2]Productos_Resumen`) |
-| Texto de trazabilidad pesado | Notas de enriquecimiento (13.8 MB de texto) y Fuentes de consulta (11.6 MB) pesan más que los 26 atributos juntos |
-| Columnas duplicadas | Precio compra vigente y Precio venta vigente repiten Precio de compra y de venta (solo 46 filas difieren de cada una) |
-| Todo en un libro | 12 hojas en un solo archivo: 396 MB sin comprimir |
+| Paso 1 Categoría y División | Palabra clave del nombre; División por la tabla de categorías |
+| Paso 2 Género | Dama → Mujer, Caballero → Hombre; accesorio sin género → Unisex |
+| Pasos 4 y 5 Tallas | CH/MED/GDE → S/M/L, 2XL → XXL; talla de EE. UU. de la misma fila del catálogo (Criterios 8), según la familia de la categoría (Criterios 3) |
+| Paso 6 Color | Color base por la tabla de sinónimos |
+| Paso 7 Unidad y listas | PRS en calzado, PZS lo demás; `CORE` → Core, `Pieza` → PZS |
+| Pasos 8 y 9 Fit y Silueta | Fit solo en Ropa y Denim. Silueta solo en Sombreros, Calzado y Jeans, y solo de la lista de su categoría. Fuera de eso, vacío (p. ej. «Correa de 38 mm», «Bifold») |
+| Otros | Ceros iniciales del UPC, clave SAT de 8 dígitos, coma decimal en costos, país escrito en español, licencia con una sola escritura, acentos en materiales, `(blank)` → vacío |
+| Estilo desde el SKU | SKU con formato Karman (`01-001-0016-1076 BL-2XL`): el estilo es el prefijo de 4 bloques, convención que cumplen 564 de 601 filas. Completa los estilos de Roper |
 
-La base Ariat anterior tenía el mismo problema: 59,346 filas × 60 columnas (3.5 millones de celdas) en una hoja, más la hoja Revisión.
-
-### Calidad de los datos
-
-| Hallazgo | Volumen | Tratamiento |
-|----|----|----|
-| Filas sin WB Marca | 1,034 | Marca deducida en 723 filas; 265 sin evidencia quedan en `Sin_Marca` |
-| Mismo producto en dos o más filas | 403 grupos (799 filas) | Integrados en un registro (sección 3) |
-| Padres repetidos del mismo estilo | 190 grupos | Integrados |
-| Código de barras sin cero inicial (`87327002917`) | 25 pares Tru Western (Carga Hoja2 contra NetSuite) | Se restituye el cero y se integran |
-| Mismo SKU con otro código de barras | 75 grupos Wrangler y Montana West (Carga Hoja2/Hoja3 contra Catálogo existente) | Integrados; el segundo código queda como alterno |
-| Códigos Stetson de 17 dígitos (`12020000101017025`) | 752 | Son la clave interna Stetson (SKU sin guiones), no un UPC. Quedan con incidencia |
-| Costo con coma decimal (`344,48`) | 140 | Corregido a punto |
-| Costo que parece estar en dólares (11 a 20 contra venta de ~1,449) | 7,053 (6,558 de Ariat) | Aviso en cada fila: confirmar moneda (decisión N5 del flujo NetSuite) |
-| Valores fuera de Criterios: `CORE`, `Pieza`, `Mexico`/`MX`/`MEX`, `USA`/`US`, `(blank)`, `STETSON`, `Tom And Jerry`, `Rick and Morty`, composición sin acentos | 1,439 | Homologados |
-| Silueta fuera de su categoría (`Correa de 38 mm`, `Manga larga; frente con broches`, `Bifold`) | 45 | Campo vacío, como pide Criterios |
-| Códigos de Shopify Stetson repetidos en artículos distintos (hoja Revisión Duplicados) | 11 | Pasan a Revisión de Stetson como «Conflicto plataforma»: se corrigen en la tienda |
-| Artículos «Hoja a Revisar — inactivo» de la base Ariat anterior | 605 | Ya no están en el Cíclico y no se incluyen. Siguen en `Base_Unificada_Ariat_G1522.xlsx` |
-
-## 2. Bases por marca
-
-Regla de marca: **Marca principal**; si es Multimarca o está vacía, **WB Licencia**; si la licencia no es una marca, **WB Marca**; si no hay marca, el nombre de la marca en la descripción o el prefijo del código del proveedor (`CL/` CAPSLAB, `AR` Ariat, `WLHB` Willow Lane, etc.). En el Cíclico, Licencia y WB Marca coinciden en todas las filas Multimarca.
-
-Montana West y Wrangler van en una sola base. Ariat pasa de 20,000 filas y se divide por División.
-
-Cada archivo tiene **una sola hoja**. Por marca hay un archivo de Productos, uno de Revisión y uno de Stock por ubicación (Stetson también tiene uno de Escaneos):
-
-| Carpeta | Productos | Válido | Con avisos | Con incidencias | Integrados |
-|----|----|----|----|----|----|
-| `Ariat/` Ropa | 31,959 | 25,540 | 6,268 | 151 | 51 |
-| `Ariat/` Calzado | 10,545 | 6,220 | 4,288 | 37 | 11 |
-| `Ariat/` Denim | 8,359 | 7,093 | 1,063 | 203 | 32 |
-| `Ariat/` Accesorios | 5,726 | 1,675 | 4,013 | 38 | 208 |
-| `Ariat/` Sin división | 1,841 | 0 | 1,319 | 522 | 0 |
-| `Stetson/` | 2,966 | 1,485 | 241 | 1,240 | 0 |
-| `Montana_West_Wrangler/` | 1,150 | 193 | 612 | 345 | 76 |
-| `CAPSLAB/` | 703 | 0 | 368 | 335 | 0 |
-| `REFLO/` | 652 | 0 | 285 | 367 | 0 |
-| `Happy_Socks/` | 570 | 0 | 211 | 359 | 0 |
-| `Roper/` | 288 | 0 | 4 | 284 | 0 |
-| `Sin_Marca/` | 265 | 0 | 0 | 265 | 0 |
-| `Denver/` | 264 | 135 | 3 | 126 | 0 |
-| `Willow_Lane/` | 80 | 80 | 0 | 0 | 0 |
-| `Tru_Western/` | 78 | 3 | 24 | 51 | 25 |
-| `Ranch_Corral/` | 44 | 0 | 22 | 22 | 0 |
-| `Generico/` | 22 | 0 | 1 | 21 | 0 |
-| `Yellowstone/` | 4 | 0 | 0 | 4 | 0 |
-| **Total** | **65,516** | **42,424** | **18,722** | **4,370** | **403** |
-
-`Indice_bases_G1522.xlsx` lista los 44 archivos con filas, celdas, tamaño y conteos. `Listas_Criterios_G1522.xlsx` reúne las listas de Criterios (secciones 3, 8, 9 y 12).
-
-### Optimización para Google Sheets
-
-| Medida | Efecto |
-|----|----|
-| Un archivo por marca y por contenido, una hoja por archivo | Sheets abre solo lo que se va a trabajar |
-| Solo las celdas con datos, sin filas vacías con formato | El rango declarado es el real |
-| Sin fórmulas: estatus y validadores ya calculados | Nada se recalcula al abrir, filtrar u ordenar |
-| Fuera las columnas de texto de trazabilidad (Notas, Fuentes de consulta, Panel de Duplicados) y los precios vigentes duplicados | El texto se consulta en el Cíclico por Identificador interno |
-| Identificadores guardados como texto | Se conservan los ceros iniciales (133 códigos) |
-| Desplegables de Criterios › 12 como una regla por columna | Marca principal, WB Marca, División, Género, Temporada, Ciclo de vida, Unidad, Color y Fit. Avisan, no bloquean |
-
-El archivo más grande, `Productos_Ariat_Ropa.xlsx`, tiene 1.47 millones de celdas y pesa 4.3 MB. La base Ariat anterior tenía 3.5 millones de celdas en una hoja y pesaba 11 MB. Si aún resulta pesado, la regla `MAX_FILAS_LIBRO` del script permite partirlo más.
+Cada cambio queda en «Notas de enriquecimiento / revisión» de su fila con este formato: `Homologación G1522 06/10/2026: campo «antes» → «después» (tipo)`. La misma nota trae la validación G1522, por ejemplo dígito de control inválido o costo posiblemente en dólares, y el resultado de los validadores NetSuite/Odoo y Shopify cuando fallan.
 
 ## 3. Productos iguales integrados en uno
 
-Se funden en un registro los que son el mismo producto:
+Se funden en un registro (213 integraciones):
 
 1. El mismo código de barras, aunque uno haya perdido el cero inicial.
-2. El mismo WB SKU con marca, estilo, talla y color compatibles (iguales o uno vacío).
-3. Una variante sin código igual en marca, estilo, talla y color a una sola variante con código.
-4. Padres repetidos del mismo estilo y marca.
+2. El mismo SKU con estilo, talla y color compatibles.
+3. Una variante sin código igual en estilo, talla y color a una con código.
 
-Si el SKU o el código coinciden pero el estilo, la talla o el color son distintos, no se funden: es una colisión de captura y va a Revisión (árbol de decisión de `Propuesta_Limpieza_Catalogo_Shopify_G1522.md`, §7).
+Si el SKU o el código coinciden pero el estilo, la talla o el color son distintos, no se funden: es una colisión de captura y queda anotada.
 
-Se conserva el registro con código válido y mejor origen: Catálogo existente, después NetSuite con existencia, NetSuite sin existencia, Hoja a Revisar, plataformas y al final las cargas Hoja2/Hoja3. Los campos vacíos se completan con los otros registros. Si los valores difieren, se conserva el principal y la diferencia queda en Revisión como «Conflicto entre duplicados». Las existencias se suman y las ubicaciones se unen.
+Se conserva el registro con código válido y mejor origen. Sus campos vacíos se completan con los otros, las existencias se suman y las ubicaciones se unen. En «🔍 Panel de Duplicados» del registro conservado se indica cuántos integró y los códigos alternos. Los registros originales quedan completos en la hoja Revisión Duplicados, con la fuente «registro conservado» o «registro integrado».
 
-Cada registro integrado lo indica en dos columnas:
+## 4. Investigación en línea
 
-- **Registros integrados:** motivo e IDs de las filas absorbidas.
-- **Códigos de barras alternos:** el otro código, cuando el mismo producto traía dos (69 casos). Revisión pide confirmar cuál trae la etiqueta física.
+`investigar_web_g1522.py` descargó los catálogos públicos de las marcas y sus distribuidores y consultó ariat.com por número de estilo. Resultado: `Investigacion_web_G1522.csv`, con 33,562 datos de productos del catálogo; cada uno trae llave, campo, valor, URL y evidencia.
 
-Stock por ubicación y Escaneos se ligan al registro integrado por cualquiera de sus códigos.
-
-## 4. Criterios aplicados
-
-Además de las reglas de `homologar_ariat_g1522.py`, que se reutilizan tal cual, se aplicaron:
-
-| Sección de Criterios | Aplicación | Registros |
+| Fuente | Cómo empata | Datos |
 |----|----|----|
-| 1 · Paso 1 | Categoría por palabra clave y División por categoría | 415 y 37 completadas |
-| 1 · Paso 2 | Género por descripción; accesorio sin género → Unisex | 704 |
-| 1 · Paso 5 y 8 | Talla de EE. UU. de la misma fila del catálogo, filtrada por la familia de la categoría (sección 3) y el género | 134 |
-| 1 · Paso 8 / 7 | Fit en Ropa y Denim cuando la descripción nombra un solo fit (Slim, Relajado, Recto, Clásico, Moderno, Bootcut) | 640 |
-| 1 · Paso 9 / 7 | Silueta en Sombreros, Botas, Zapatos y Jeans cuando la descripción nombra una sola (Copa Cattleman, Punta Cuadrada, Trouser, Recto…) | 597 |
-| 4 · Listas básicas | `CORE` → Core, `Pieza` → PZS | 56 |
-| 8 · Catálogo de tallas | Aviso si la pareja WB Talla / Talla de EE. UU. no está en el catálogo | 559 |
-| 9 · Ubicaciones | Columna Bodega (25 / 43) en Stock por ubicación y Escaneos | — |
-| 12 · Listas automáticas | Desplegables en Productos | 9 columnas |
-| Padre | El padre toma de sus variantes División, Categoría, Género, Temporada y Ciclo de vida cuando todas coinciden | incluido arriba |
+| ariat.com.mx | Código de barras (SKU de la tienda) | 18,201 |
+| ariat.com | Número de estilo (1,733 de 4,987 estilos siguen publicados) | 6,121 |
+| stetson.mx | WB SKU | 3,395 |
+| westernbrothers.mx | Código de barras | 3,172 |
+| stetson.com | WB SKU | 1,498 |
+| montanawestworld.com | WB SKU | 519 |
+| reflo.com | Código de barras de cada variante | 338 |
+| willowlanehats.com | WB SKU | 318 |
 
-En Ariat, los valores que la base anterior tomó de su tienda Shopify (Fit por corte, país, composición, imagen, temporada) se completan antes que las reglas por descripción, porque son mejor evidencia. Las decisiones de esa base sobre la tienda se conservan en `Revision_Ariat.xlsx`: 785 conflictos de precio, 6 conflictos de SKU o código y 526 variantes solo en Shopify. También se conservan los IDs de Shopify (Handle, ID producto, ID variante, Estatus) para cargas con `UPDATE`.
+Solo se escribe un dato si cumple todas estas condiciones:
 
-Lo deducido por regla queda en Revisión con su evidencia para confirmarlo. No se inventan temporadas, ciclos de vida, colores ni composiciones.
+- El campo está vacío.
+- El valor existe en las listas de Criterios (color base por sinónimos, categoría por palabra clave, género de la lista básica).
+- La fuente da un solo valor. Si dos fuentes dan valores distintos, se descarta (1,134 casos).
 
-## 5. Validadores aplicados
+Además:
 
-Las fórmulas de los cuatro validadores se calculan en Python y se guardan como texto, con el mismo semáforo (`✅ PASA` / `❌ motivos`), solo en variantes:
+- **País:** solo cuando la ficha lo declara («Made in USA», «Hecho en México»), nunca a partir de «Imported».
+- **Fit:** solo cuando la ficha nombra el corte («Relaxed Fit», «Corte Recto»).
+- **Lo que nunca se toma de internet:** SKU, código de barras, temporada, ciclo de vida y precios.
 
-| Columna | Reglas | Pasa |
-|----|----|----|
-| Validador NetSuite / Odoo | V1 longitud 12–14 (y código faltante), V2 UPC repetido, V4 SKU repetido, V6 falta estilo, N2 talla cero o vacía (admite 0 en Vestidos, Faldas, Jeans, Pantalones y Shorts, como pide la documentación) | 50,544 de 54,946 |
-| Validador Shopify | V1, V2, V4, V6 más la regla de precio de la tienda: Stetson, precio × 1.16 múltiplo de 50; las demás marcas (WB), entero de precio × 1.16 terminado en 9 | 9,371 de 54,946 |
+La URL queda en «Fuentes de consulta» de la fila: `Investigación en línea 06/10/2026: <url>`.
 
-El Validador Shopify falla sobre todo por precio: en 44 mil variantes el precio de venta del catálogo da un múltiplo de 100 con IVA (1,724.14 × 1.16 = 2,000), no uno terminado en 9. Es lo mismo que la base Ariat ya documentaba: la tienda redondea a 9 y el ERP no. La regla «SKU = código de barras» de Shopify WB no se evalúa contra WB SKU, porque el flujo WB arma ese SKU a partir del código al preparar el archivo Matrixify.
+| Campo completado en línea | Filas |
+|----|----|
+| Enlace de imagen | 4,657 |
+| WB Silueta | 1,883 |
+| WB Fit | 420 |
+| WB Género | 267 |
+| WB Color | 133 |
+| WB País de origen | 59 |
+| WB Descripcion | 45 |
+| WB Categoría | 41 |
+| WB Talla y Talla de EE. UU. | 35 |
+
+**Sin fuente en línea disponible:**
+
+| Marca | Motivo |
+|----|----|
+| Happy Socks | El sitio está en mantenimiento y la búsqueda por código de barras no identifica los productos. Sus 359 filas sin estilo, SKU ni descripción siguen pendientes |
+| Wrangler (botas WACA, cinturones C4…) | wrangler.com bloquea las consultas |
+| CAPSLAB, Roper, Denver, Tru Western, Ranch & Corral, Yellowstone | No publican un catálogo consultable |
+| Ariat descontinuado | 3,254 estilos ya no están publicados en ariat.com |
+
+## 5. Revisión del archivo Cíclico
+
+| Hallazgo | Detalle |
+|----|----|
+| Rango declarado mayor que los datos | Productos declara 166,905 filas y tiene 65,790 |
+| Fórmulas cuadráticas | Estatus y Detalle comparan cada fila contra toda la columna |
+| Columnas de texto pesadas | Notas (13.8 MB de texto) y Fuentes de consulta (11.6 MB) |
+| Mismo producto en varias filas | 403 grupos: SKU repetido entre Hoja2/Hoja3 y Catálogo existente, UPC sin cero inicial, padres repetidos |
+| Filas sin WB Marca | 1,034; marca deducida en 723 |
+| Códigos Stetson de 17 dígitos | 752 son clave interna, no UPC |
+| Costos que parecen estar en dólares | 7,053 (11 a 20 contra venta de ~1,449) |
+| Valores fuera de Criterios | `CORE`, `Pieza`, `MX`, `USA`, `(blank)`, `STETSON`, licencias con dos escrituras, coma decimal |
 
 ## 6. Diferencias entre documentos
 
-Se siguió Criterios y `Anatomia_productos_atributos_G1522.md`, que son la autoridad de captura:
+Se siguieron Criterios y Anatomía, que son la autoridad de captura:
 
-| Tema | Criterios / Anatomía | `Flujo_Alta_Productos_NetSuite_G1522.md` |
+| Tema | Criterios / Anatomía | Flujo NetSuite |
 |----|----|----|
 | Talla de calzado | US = MX − 18 (hombre) o − 17 (mujer) | MX = US + 20 |
 | Ropa | XXL, XXXL | 2XL, 3XL |
 | Ciclo de vida | Core | CORE |
+| Campo que no aplica | Vacío | — |
 
-Conviene alinear el flujo NetSuite antes del primer lote.
+Las listas desplegables de la plantilla (Criterios 12) incluyen «No Aplica». Se dejaron como están para no cambiar la estructura, pero los datos usan vacío, como pide la Anatomía.
 
 ## 7. Pendientes
 
-1. Revisar cada `Revision_<marca>.xlsx`, empezando por «Requiere revisión» y «Conflicto entre duplicados».
-2. Confirmar la moneda de los 7,053 costos con aviso de USD.
-3. Asignar marca a las 265 filas de `Sin_Marca`.
-4. Capturar estilo y SKU faltantes en Roper, REFLO y Happy Socks: casi todas sus incidencias son por eso.
-5. Decidir si los códigos Stetson de 17 dígitos se reemplazan por UPC del proveedor.
-6. Confirmar los códigos alternos de los 69 productos con dos códigos.
-7. Confirmar el uso de Silueta en Tenis y Pantuflas (152 avisos).
+1. Happy Socks: estilo, SKU, descripción y clasificación de 359 variantes, que en NetSuite solo tienen código de barras.
+2. REFLO: 367 variantes en la misma situación. La tienda solo cubrió las que siguen a la venta.
+3. Confirmar la moneda de los costos con aviso de dólares.
+4. Asignar marca a las 113 variantes de `Sin_Marca`.
+5. Revisar en cada archivo las notas «Completado por regla» y «Completado por investigación en línea»: son propuestas con evidencia y requieren confirmación.
+6. Decidir si los códigos Stetson de 17 dígitos se reemplazan por UPC del proveedor.

@@ -1,38 +1,38 @@
-"""Homologación del Cíclico integrado bajo el estándar G1522, separado por marca.
+"""Homologación del Cíclico integrado bajo el estándar G1522: un Cíclico por marca.
 
-Toma la hoja Productos de Ciclico_1522_investigado.xlsx (catálogo NetSuite
-integrado con Shopify Stetson, Shopify Western Brothers y Odoo), le aplica las
-mismas reglas que homologar_ariat_g1522.py más las de la hoja Criterios del
-Cíclico, y genera archivos por marca de una sola hoja, optimizados para
-trabajarse en Google Sheets mientras el inventario pasa al ERP.
+Toma la hoja Productos de Ciclico_1522_investigado.xlsx (catálogo NetSuite integrado con
+Shopify Stetson, Shopify Western Brothers y Odoo), le aplica las reglas de
+homologar_ariat_g1522.py y de la hoja Criterios, y escribe un archivo por marca con la
+misma estructura que Ciclico_1522_Stetson.xlsx (plantilla): las 12 hojas, las 44 columnas
+de Productos, sus fórmulas, validaciones, formatos condicionales y tablas.
 
 Secuencia (Estructura_datos_validaciones_G1522.md, «Secuencia de validación y carga»):
-  1. Preparar   - leer el Cíclico sin alterarlo; identificadores como texto.
-                  Ariat suma la base ya homologada (Base_Unificada_Ariat_G1522.xlsx),
-                  que es la única que conserva la evidencia de su tienda Shopify.
-  2. Marca      - Marca principal; si es Multimarca, WB Licencia; si no, WB Marca;
-                  sin marca: la del mismo estilo, el nombre en la descripción o el
-                  prefijo del código.
-  3. Normalizar - Criterios (homologar_ariat_g1522.normalizar) más los casos que
-                  solo aparecen en el Cíclico: país, licencia, CORE, Pieza, ceros
-                  iniciales del código, composición, coma decimal; y Criterios ›
-                  3, 7, 8, 9 y 12 (talla de EE. UU., Fit, Silueta, bodega, desplegables).
-  4. Integrar   - los registros que son el mismo producto se funden en uno:
-                  mismo código (aun sin ceros iniciales), mismo SKU con estilo y
-                  talla compatibles, o variante sin código igual a otra con código.
-                  Los padres repetidos por estilo también se funden.
-  5. Validar    - controles G1522 y los cuatro validadores (NetSuite, Odoo,
-                  Shopify WB, Shopify Stetson) como columnas ya calculadas.
-  6. Resolver   - todo cambio, fusión, conflicto o duda queda en «Revisión».
+  1. Preparar   - leer el Cíclico; las correcciones hechas a mano en los
+                  Ciclico_1522_<Marca>.xlsx existentes mandan sobre él. Ariat suma la base
+                  homologada (Base_Unificada_Ariat_G1522.xlsx), que guarda la evidencia de
+                  su tienda Shopify.
+  2. Marca      - Marca principal; si es Multimarca, WB Licencia; si no, WB Marca; sin
+                  marca: la del mismo estilo, el nombre en la descripción o el prefijo del
+                  código.
+  3. Normalizar - Criterios (homologar_ariat_g1522.normalizar) más los casos propios del
+                  Cíclico (país, licencia, CORE, Pieza, ceros iniciales, coma decimal,
+                  acentos en materiales, estilo desde el SKU Karman), la investigación en
+                  línea (Investigacion_web_G1522.csv) y Criterios › 3, 7 y 8 (talla de
+                  EE. UU., Fit, Silueta).
+  4. Integrar   - los registros que son el mismo producto se funden en uno; los originales
+                  quedan en la hoja Revisión Duplicados.
+  5. Validar    - controles G1522 y los cuatro validadores (NetSuite, Odoo, Shopify WB,
+                  Shopify Stetson).
+  6. Resolver   - cada cambio queda en «Notas de enriquecimiento / revisión» de su fila y
+                  cada fuente web en «Fuentes de consulta».
 
-Uso:    python3 homologar_ciclico_g1522.py
-Salida: carpeta Bases_Sheets_G1522/ con una carpeta por marca (Montana West y
-        Wrangler juntos; Ariat con Productos dividido por División) y, en cada una,
-        Productos, Revisión y Stock por ubicación en archivos de una sola hoja;
-        más Indice_bases_G1522.xlsx y Listas_Criterios_G1522.xlsx.
+Uso:    python3 homologar_ciclico_g1522.py [Marca ...]
+Salida: Ciclico_1522_<Marca>.xlsx en esta carpeta (Montana West y Wrangler juntos).
 """
 
+import io
 import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -43,15 +43,19 @@ import homologar_ariat_g1522 as g
 BASE = Path(__file__).resolve().parent
 CICLICO = BASE / "Ciclico_1522_investigado.xlsx"
 ARIAT = BASE / "Base_Unificada_Ariat_G1522.xlsx"
-SALIDA = BASE / "Bases_Sheets_G1522"
+PLANTILLA = BASE / "Ciclico_1522_Stetson.xlsx"
+WEB = BASE / "Investigacion_web_G1522.csv"
+FECHA = "06/10/2026"
+# Arriba de este número de variantes, la validación de Productos (AA/AB) y la fila de
+# Stock por Ubicación se escriben ya calculadas: sus fórmulas comparan cada fila contra
+# toda la columna y con decenas de miles de filas saturan el navegador.
+LIMITE_FORMULAS = 10000
 
 ATRIBUTOS = g.ATRIBUTOS
 CAMPOS_FUSION = [c for c in ATRIBUTOS if c not in ("Código de barras", "Identificador interno")]
 
-# Marcas que se trabajan en un mismo libro.
+# Marcas que se trabajan en un mismo archivo.
 GRUPOS = {"Montana West": "Montana West + Wrangler", "Wrangler": "Montana West + Wrangler"}
-# Una marca con más filas divide su archivo de Productos por División, para Sheets.
-MAX_FILAS_LIBRO = 20000
 
 g.TEXTOS_SUSTITUTOS |= {"(blank)", "(Blank)", "0.0"}
 
@@ -59,10 +63,9 @@ PAISES = {"mexico": "México", "mx": "México", "mex": "México",
           "usa": "Estados Unidos", "us": "Estados Unidos", "eua": "Estados Unidos",
           "eeuu": "Estados Unidos", "estados unidos": "Estados Unidos",
           "china": "China", "india": "India", "vietnam": "Vietnam"}
-MATERIAL_ESCRITURA = {"algodon": "Algodón", "poliester": "Poliéster", "rayon": "Rayón",
-                      "acrilico": "Acrílico", "nailon": "Nylon", "nylon": "Nylon",
-                      "elastano": "Elastano", "poliamida": "Poliamida", "lana": "Lana",
-                      "viscosa": "Viscosa", "lino": "Lino", "piel": "Piel"}
+# Materiales que suelen llegar sin acento; se corrige solo el acento, sin cambiar mayúsculas.
+MATERIAL_ESCRITURA = {"algodon": "algodón", "poliester": "poliéster", "rayon": "rayón",
+                      "acrilico": "acrílico"}
 
 # Prioridad del registro que se conserva al fundir duplicados (árbol de decisión,
 # Propuesta_Limpieza_Catalogo_Shopify_G1522.md §7): estructura y existencias primero.
@@ -72,14 +75,16 @@ PRIORIDAD_ORIGEN = [("Catálogo existente", 50), ("NetSuite con existencia", 46)
                     ("Shopify Western", 22), ("Odoo", 20), ("Shopify Ariat", 15),
                     ("Carga Hoja", 10)]
 
-NUMERICAS = ["Stock NetSuite", "Disponible NetSuite", "Stock Shopify Stetson",
-             "Stock Shopify WB", "Stock Odoo", "Piezas escaneadas"]
-TEXTOS_UNION = ["Ubicaciones con stock (NetSuite)", "Ubicaciones con existencia negativa"]
+NUMERICAS = ["Stock Sistema NetSuite", "Disponible NetSuite", "Stock Shopify Stetson México",
+             "Stock Shopify Western Brothers", "Stock Odoo Universal Unique Brands"]
+TEXTOS_UNION = ["Ubicaciones con stock (NetSuite)", "Ubicaciones con existencia negativa",
+                "📍 Ubicación en plataformas (Plataforma + Marca)",
+                "Ubicaciones con stock (plataformas)", "Fuentes de consulta"]
 SHOPIFY_ARIAT = ["Shopify Handle", "Shopify ID producto", "Shopify ID variante", "Shopify Estatus"]
-RENOMBRAR = {"Stock Sistema NetSuite": "Stock NetSuite",
-             "Stock Shopify Stetson México": "Stock Shopify Stetson",
-             "Stock Shopify Western Brothers": "Stock Shopify WB",
-             "Stock Odoo Universal Unique Brands": "Stock Odoo"}
+# Marcas de lo que este script agrega a las columnas de texto del Cíclico; al releer un
+# Cíclico por marca ya generado se quitan para no duplicarlas.
+MARCA_NOTA = "Homologación G1522"
+MARCA_WEB = "Investigación en línea"
 
 
 # --------------------------------------------------------------------------
@@ -119,16 +124,89 @@ def leer_ciclico():
     xl = pd.ExcelFile(CICLICO, engine="calamine")
     productos = leer_hoja(xl, "Productos")
     productos = productos[(productos[ATRIBUTOS] != "").any(axis=1)].reset_index(drop=True)
-    productos = productos.rename(columns=RENOMBRAR)
-    resumen = leer_hoja(xl, "Productos_Resumen")
-    escaneadas = resumen[resumen["Piezas_Escaneadas"] != "0"].drop_duplicates("Id_Interno")
-    productos["Piezas escaneadas"] = productos["Identificador interno"].map(
-        escaneadas.set_index("Id_Interno")["Piezas_Escaneadas"]).fillna("")
+    productos = aplicar_ciclicos_por_marca(productos)
     hojas = {h: leer_hoja(xl, h) for h in ("Stock por Ubicación", "Escaneos",
                                            "Revisión Duplicados")}
     criterios = pd.read_excel(xl, sheet_name="Criterios", dtype=str, header=None).fillna("")
     criterios = criterios.apply(lambda s: s.str.strip())
     return productos, hojas, leer_criterios(criterios)
+
+
+def llave_fila(df):
+    """Llave para reconocer la misma fila entre el Cíclico y un Cíclico por marca."""
+    llave = df["Código de barras"].str.lstrip("0").where(
+        df["Código de barras"] != "",
+        ("ID:" + df["Identificador interno"]).where(df["Identificador interno"] != "",
+                                                    "SKU:" + df["WB SKU"]))
+    # Sin código, ID ni SKU (altas desde una tienda): nombre y talla.
+    texto = "TXT:" + df["WB Descripcion"].str.upper() + "|" + df["WB Talla"].str.upper()
+    return llave.where(llave != "SKU:", texto.where(df["WB Descripcion"] != "", ""))
+
+
+def limpiar_agregado(texto, marca):
+    """Quita de una celda de texto los segmentos que agregó una corrida anterior."""
+    return " | ".join(p for p in texto.split(" | ") if not p.startswith(marca)).strip()
+
+
+AUTOR = "homologar_ciclico_g1522"
+
+
+def segmento(texto, marca):
+    return " | ".join(p for p in texto.split(" | ") if p.startswith(marca))
+
+
+def aplicar_ciclicos_por_marca(productos):
+    """Los Cíclicos por marca (Ciclico_1522_<Marca>.xlsx) son la versión de trabajo: lo que
+    se corrigió ahí en los 26 atributos manda sobre el Cíclico integrado. Existencias,
+    ubicaciones, notas y fuentes siempre salen del Cíclico integrado."""
+    archivos = [f for f in sorted(BASE.glob("Ciclico_1522_*.xlsx")) if f != CICLICO]
+    if not archivos:
+        return productos
+    trabajo = pd.concat([leer_hoja(pd.ExcelFile(f, engine="calamine"), "Productos")
+                         [productos.columns] for f in archivos], ignore_index=True)
+    trabajo = trabajo[(trabajo[ATRIBUTOS] != "").any(axis=1)]
+    # La misma fila se reconoce por código, ID, SKU o nombre y talla, en ese orden, para
+    # que un cambio en una de esas llaves no la duplique.
+    llaves = {
+        "cb": lambda d: d["Código de barras"].str.lstrip("0"),
+        "id": lambda d: d["Identificador interno"],
+        "sku": lambda d: d["WB SKU"].str.upper(),
+        "txt": lambda d: (d["WB Descripcion"].str.upper() + "|" + d["WB Talla"].str.upper())
+        .where(d["WB Descripcion"] != "", ""),
+    }
+    indice = {}
+    for nombre, f in llaves.items():
+        valores = f(productos)
+        indice[nombre] = defaultdict(list)
+        for i, v in valores[valores != ""].items():
+            indice[nombre][v].append(i)
+    columnas = list(productos.columns)
+    productos["_nota_previa"] = ""
+    productos["_fuente_previa"] = ""
+    usadas, nuevas = set(), []
+    for _, fila in trabajo.iterrows():
+        destino = None
+        for nombre, f in llaves.items():
+            valor = f(fila.to_frame().T).iloc[0]
+            libres = [i for i in indice[nombre].get(valor, []) if i not in usadas] if valor else []
+            if libres:
+                destino = libres[0]
+                break
+        if destino is None:
+            # Las variantes solo Shopify de Ariat las vuelve a agregar integrar_base_ariat.
+            if not fila["Origen del registro"].startswith("Nuevo – Shopify Ariat"):
+                nuevas.append(fila[columnas])
+        else:
+            usadas.add(destino)
+            productos.loc[destino, ATRIBUTOS] = fila[ATRIBUTOS].to_numpy()
+            # Lo que ya se explicó en una corrida anterior (notas y fuentes web) se conserva.
+            productos.loc[destino, "_nota_previa"] = segmento(
+                fila["Notas de enriquecimiento / revisión"], MARCA_NOTA)
+            productos.loc[destino, "_fuente_previa"] = segmento(fila["Fuentes de consulta"], MARCA_WEB)
+    if nuevas:
+        productos = pd.concat([productos, pd.DataFrame(nuevas)], ignore_index=True).fillna("")
+    print(f"Cíclicos por marca: {len(usadas)} filas actualizadas, {len(nuevas)} nuevas")
+    return productos
 
 
 def seccion(criterios, titulo, salto):
@@ -325,6 +403,34 @@ def codigo_de_sku(df, rev):
                     "Nombre/número del hijo = UPC)", f"WB SKU: {sku}")
 
 
+KARMAN = re.compile(r"^(\d{2}-\d{3}-\d{4}-\d{4})[ _-]")
+
+
+def estilo_desde_sku(df, rev):
+    """SKU con formato Karman (Stetson, Roper: 01-001-0016-1076 BL-2XL): el estilo es el
+    prefijo de 4 bloques, como en la mayoría de las filas que ya traen ambos."""
+    con_ambos = df[(df["WB N.º de estilo"] != "") & df["WB SKU"].str.match(KARMAN)]
+    prefijo = con_ambos["WB SKU"].str.extract(KARMAN)[0]
+    iguales, total = int((con_ambos["WB N.º de estilo"] == prefijo).sum()), len(con_ambos)
+    if not total or iguales / total < 0.9:
+        return
+    for i in df.index[(df["WB N.º de estilo"] == "") & df["WB SKU"].str.match(KARMAN)
+                      & ~es_padre(df)]:
+        estilo = KARMAN.match(df.at[i, "WB SKU"]).group(1)
+        cambiar(df, i, "WB N.º de estilo", estilo, rev, "Completado por regla",
+                "Estilo tomado del SKU (formato Karman: los 4 primeros bloques)",
+                f"WB SKU {df.at[i, 'WB SKU']}; convención en {iguales} de {total} filas")
+
+
+def acentuar(palabra):
+    correcta = MATERIAL_ESCRITURA.get(palabra.lower())
+    if not correcta:
+        return palabra
+    if palabra.isupper():
+        return correcta.upper()
+    return correcta.capitalize() if palabra[0].isupper() else correcta
+
+
 def normalizar_extra(df, rev):
     licencias = df.loc[df["WB Licencia"] != "", "WB Licencia"]
     canon_marca = {g.sin_acentos(m): m for m in g.MARCAS}
@@ -372,11 +478,10 @@ def normalizar_extra(df, rev):
 
         composicion = df.at[i, "WB Composición"]
         if composicion:
-            nueva = re.sub(r"[A-Za-zÁÉÍÓÚáéíóúñ]+", lambda m: MATERIAL_ESCRITURA.get(
-                g.sin_acentos(m.group(0)), m.group(0)), composicion)
+            nueva = re.sub(r"[A-Za-z]+", lambda m: acentuar(m.group(0)), composicion)
             if nueva != composicion:
                 cambiar(df, i, "WB Composición", nueva, rev, "Corrección aplicada",
-                        "Nombre del material escrito con acentos y mayúscula inicial")
+                        "Nombre del material escrito con su acento")
             porcentajes = [float(p) for p in re.findall(r"(\d+(?:\.\d+)?)\s*%", nueva)]
             if porcentajes and not re.search(r"[:/]", nueva) and \
                     abs(sum(porcentajes) - 100) > 0.01:
@@ -566,7 +671,7 @@ def integrar_duplicados(df, rev):
 
     df["Códigos de barras alternos"] = ""
     df["Registros integrados"] = ""
-    absorbidas, destino = [], {}
+    absorbidas, destino, integrados_detalle = [], {}, []
     for raiz, indices in miembros.items():
         if len(indices) == 1:
             continue
@@ -610,11 +715,17 @@ def integrar_duplicados(df, rev):
                 df.at[p, c] = "; ".join(dict.fromkeys(partes))
         df.at[p, "Códigos de barras alternos"] = " | ".join(dict.fromkeys(alternos))
         df.at[p, "Registros integrados"] = f"{motivo}: " + " | ".join(integrados)
+        panel = f"{MARCA_NOTA}: integra {len(otros)} registro(s) iguales por {motivo}"
+        if alternos:
+            panel += "; códigos de barras alternos: " + ", ".join(dict.fromkeys(alternos))
+        df.at[p, "🔍 Panel de Duplicados"] = " | ".join(
+            x for x in (limpiar_agregado(df.at[p, "🔍 Panel de Duplicados"], MARCA_NOTA), panel) if x)
+        integrados_detalle.append((df.at[p, "_uid"], motivo, [filas[p]] + [filas[j] for j in otros]))
         rev.add(df.loc[p], "Registro", f"{len(indices)} registros", "1 registro",
                 "Productos integrados", f"Se fundieron por {motivo}",
                 " | ".join(integrados))
         absorbidas += otros
-    return df.drop(index=absorbidas).reset_index(drop=True), destino
+    return df.drop(index=absorbidas).reset_index(drop=True), destino, integrados_detalle
 
 
 def completar_padres(df, rev):
@@ -715,66 +826,293 @@ def slug(texto):
         .replace("Capslab", "CAPSLAB").replace("Reflo", "REFLO")
 
 
-def listas_criterios(criterios):
-    """Listas de Criterios (12 Listas automáticas, 3 Categorías y 8 Tallas) en una tabla."""
-    columnas = dict(criterios["listas"])
-    columnas["Categoría"] = sorted(g.CATEGORIA_DIVISION)
-    columnas["División de la categoría"] = [g.CATEGORIA_DIVISION[c] for c in columnas["Categoría"]]
-    columnas["Familia de talla"] = [criterios["familias"].get(c, "") for c in columnas["Categoría"]]
-    columnas["Catálogo de tallas: familia"] = [f for f, _, _ in criterios["tallas"]]
-    columnas["Catálogo: WB Talla"] = [mx for _, mx, _ in criterios["tallas"]]
-    columnas["Catálogo: Talla de EE. UU."] = [us for _, _, us in criterios["tallas"]]
-    columnas["Ubicación"] = list(criterios["bodegas"])
-    columnas["Bodega"] = list(criterios["bodegas"].values())
-    n = max(len(v) for v in columnas.values())
-    return pd.DataFrame({k: list(v) + [""] * (n - len(v)) for k, v in columnas.items()})
+# --------------------------------------------------------------------------
+# Investigación en línea (Investigacion_web_G1522.csv, generado por
+# investigar_web_g1522.py a partir de las tiendas y sitios oficiales de cada marca)
+# --------------------------------------------------------------------------
+
+SILUETAS_DE = {"Sombreros": g.SILUETA_SOMBRERO, "Botas": g.SILUETA_CALZADO,
+               "Zapatos": g.SILUETA_CALZADO, "Jeans": g.SILUETA_JEANS}
 
 
-def escribir(ruta, tabla, desplegables=None):
-    """Un archivo con una sola hoja, ligero para Google Sheets: valores sin fórmulas ni
-    formato condicional, identificadores como texto y solo las celdas usadas. Los
-    desplegables de Criterios › 12 son una regla por columna (aviso, no bloqueo)."""
-    with pd.ExcelWriter(ruta, engine="xlsxwriter",
-                        engine_kwargs={"options": {"strings_to_numbers": False,
-                                                   "strings_to_urls": False,
-                                                   "strings_to_formulas": False}}) as xw:
-        nombre = ruta.stem[:31]
-        tabla.to_excel(xw, sheet_name=nombre, index=False)
-        hoja = xw.sheets[nombre]
-        hoja.freeze_panes(1, 0)
-        if len(tabla):
-            hoja.autofilter(0, 0, len(tabla), len(tabla.columns) - 1)
-        hoja.set_column(0, len(tabla.columns) - 1, 16)
-        for columna, valores in (desplegables or {}).items():
-            if columna not in tabla.columns or len(",".join(valores)) > 255 or not len(tabla):
+def completar_desde_web(df, rev):
+    """Llena campos vacíos con lo publicado por la marca o su distribuidor. Solo valores
+    ya traducidos a las listas de Criterios; la URL queda en «Fuentes de consulta»."""
+    if not WEB.exists():
+        return
+    web = pd.read_csv(WEB, dtype=str, keep_default_na=False)
+    norm = lambda t: re.sub(r"[^A-Z0-9]", "", t.upper())
+    indices = {
+        "Código de barras": df["Código de barras"].str.lstrip("0"),
+        "WB SKU": df["WB SKU"].map(norm),
+        "WB N.º de estilo": df["WB N.º de estilo"].map(norm),
+    }
+    mapas = {k: defaultdict(list) for k in indices}
+    for llave, serie in indices.items():
+        for i, v in serie.items():
+            if v:
+                mapas[llave][v].append(i)
+    usados = Counter()
+    for r in web.itertuples(index=False):
+        valor = r.Valor_llave.lstrip("0") if r.Llave == "Código de barras" else norm(r.Valor_llave)
+        for i in mapas[r.Llave].get(valor, []):
+            if r.Llave == "WB N.º de estilo" and df.at[i, "WB Marca"] and \
+                    grupo_de(df.at[i, "WB Marca"]) != grupo_de(r.Marca):
                 continue
-            j = tabla.columns.get_loc(columna)
-            hoja.data_validation(1, j, len(tabla), j, {
-                "validate": "list", "source": valores, "error_type": "warning",
-                "error_title": "Valor fuera de Criterios",
-                "error_message": "Usa un valor de la lista de Criterios o deja la celda vacía."})
+            if df.at[i, r.Campo] or es_padre(df.loc[[i]]).iloc[0]:
+                continue
+            # Silueta solo de la lista de su categoría (Criterios › 7): «Rancher» es copa
+            # de sombrero, no horma de bota.
+            if r.Campo == "WB Silueta" and r.Valor not in SILUETAS_DE.get(
+                    df.at[i, "WB Categoría"], set()):
+                continue
+            cambiar(df, i, r.Campo, r.Valor, rev, "Completado por investigación en línea",
+                    f"Dato publicado por la marca o su distribuidor ({r.Llave}); confirmar",
+                    f"{r.Fuente} · {r.Evidencia}")
+            fuente = f"{MARCA_WEB} {r.Fecha}: {r.Fuente}"
+            actual = df.at[i, "Fuentes de consulta"]
+            if fuente not in actual:
+                df.at[i, "Fuentes de consulta"] = f"{actual} | {fuente}" if actual else fuente
+            usados[r.Campo] += 1
+    print("Investigación en línea aplicada:", dict(usados))
 
 
-COLUMNAS_SALIDA = (["Nivel G1522"] + ATRIBUTOS
-                   + ["Estatus G1522", "Incidencias G1522", "Validador NetSuite / Odoo",
-                      "Validador Shopify", "Códigos de barras alternos", "Registros integrados",
-                      "Origen del registro"]
-                   + NUMERICAS[:2] + TEXTOS_UNION + NUMERICAS[2:])
+# --------------------------------------------------------------------------
+# Cíclicos por marca con la estructura de Ciclico_1522_Stetson.xlsx
+# --------------------------------------------------------------------------
+
+LISTA = {"División": g.DIVISIONES, "Género": g.GENEROS, "Temporada": g.TEMPORADAS,
+         "Ciclo de vida": g.CICLOS}
 
 
-def preparar_salida(productos, ariat):
-    columnas = COLUMNAS_SALIDA + (SHOPIFY_ARIAT if ariat else [])
-    tabla = productos[columnas].copy()
-    for c in ["Precio de compra", "Precio de venta"] + NUMERICAS:
-        numeros = pd.to_numeric(tabla[c], errors="coerce")
-        # Un valor no numérico se conserva como texto para que se vea y se corrija.
-        tabla[c] = numeros.astype(object).where(numeros.notna(), tabla[c].replace("", None))
-    return tabla
+def detalle_discrepancias(df):
+    """Las fórmulas AA y AB de la plantilla, calculadas en Python (libros grandes)."""
+    cb, sku = df["Código de barras"], df["WB SKU"]
+    rep_cb = cb.duplicated(keep=False) & (cb != "")
+    rep_sku = sku.duplicated(keep=False) & (sku != "")
+    detalle, estatus = [], []
+    for i, r in df.iterrows():
+        if not (r["Código de barras"] or r["Identificador interno"] or r["WB SKU"]):
+            detalle.append(""); estatus.append(""); continue
+        d = []
+        if not r["Código de barras"].strip() or "FALTA" in r["Código de barras"].upper():
+            d.append("UPC faltante/inválido")
+        if rep_cb[i]:
+            d.append("Código de barras duplicado")
+        if rep_sku[i]:
+            d.append("SKU duplicado")
+        division, categoria = r["WB División"], r["WB Categoría"]
+        d.append("[Aviso] División no capturada ()" if not division else
+                 "" if division in g.DIVISIONES else "División no válida")
+        if not categoria:
+            d.append("[Aviso] Categoría no capturada ()")
+        elif categoria not in g.CATEGORIA_DIVISION:
+            d.append("Categoría no válida")
+        elif division and division != g.CATEGORIA_DIVISION[categoria]:
+            d.append("División no coincide con Categoría")
+        for campo, nombre, valida, genero in (
+                ("WB Género", "Género", g.GENEROS, "o"), ("WB Temporada", "Temporada", g.TEMPORADAS, "a"),
+                ("WB Ciclo de vida", "Ciclo de vida", g.CICLOS, "o")):
+            if not r[campo]:
+                d.append(f"[Aviso] {nombre} no capturad{genero} ()")
+            elif r[campo] not in valida:
+                d.append(f"{nombre} no válid{genero}")
+        d = [x for x in d if x]
+        texto = "; ".join(d)
+        detalle.append(texto)
+        errores = sum(1 for x in d if not x.startswith("[Aviso]"))
+        estatus.append("Válido" if not d or not errores else "Con Incidencias")
+    return estatus, detalle
+
+
+def nota_homologacion(uid, cambios, r):
+    """Resumen de lo hecho en la fila para «Notas de enriquecimiento / revisión». Conserva
+    los cambios explicados en corridas anteriores; la validación se recalcula siempre."""
+    previa = re.sub(rf"^{MARCA_NOTA} [\d/]+: ", "", r.get("_nota_previa", "") or "")
+    partes = [x for x in previa.split(" · ") if x and not x.startswith(("Validación G1522",
+                                                                       "Validador "))]
+    for c in cambios.get(uid, []):
+        if c["Tipo"] == "Productos integrados":
+            continue
+        if c["Valor final"] != c["Valor origen"]:
+            partes.append(f"{c['Campo']}: «{c['Valor origen']}» → «{c['Valor final']}» ({c['Tipo']})")
+        else:
+            partes.append(f"{c['Campo']}: {c['Incidencia / acción']} ({c['Tipo']})")
+    errores = [e for e in r["Incidencias G1522"].split("; ")
+               if e and (not e.startswith("[Aviso]") or "USD" in e or "Pareja" in e)]
+    if errores:
+        partes.append("Validación G1522: " + "; ".join(errores))
+    for col in ("Validador NetSuite / Odoo", "Validador Shopify"):
+        if r[col].startswith("❌"):
+            partes.append(f"{col}: {r[col][2:]}")
+    if not partes:
+        return ""
+    return f"{MARCA_NOTA} {FECHA}: " + " · ".join(dict.fromkeys(partes))
+
+
+NUMERO = re.compile(r"-?\d+(\.\d+)?$")
+
+
+def a_celda(columna, valor):
+    if valor == "":
+        return None
+    if columna in COLUMNAS_NUMERICAS and NUMERO.match(valor):
+        return float(valor)
+    return valor
+
+
+COLUMNAS_NUMERICAS = {"Precio de compra", "Precio de venta", "Stock Sistema NetSuite",
+                      "Disponible NetSuite", "Precio compra vigente", "Precio venta vigente",
+                      "Stock Shopify Stetson México", "Stock Shopify Western Brothers",
+                      "Stock Odoo Universal Unique Brands"}
+
+
+def ajustar_rangos(formula, filas_productos, filas_stock):
+    """Lleva los rangos fijos de la plantilla al tamaño del libro de la marca."""
+    formula = re.sub(r"(Productos!\$?[A-Z]{1,2}\$?2:\$?[A-Z]{1,2}\$?)(\d+)",
+                     lambda m: f"{m.group(1)}{filas_productos}", formula)
+    formula = re.sub(r"('Stock por Ubicación'!\$A\$2:\$J\$)(\d+)",
+                     lambda m: f"{m.group(1)}{max(filas_stock, 2)}", formula)
+    return formula
+
+
+def limpiar_desde(ws, fila, conservar=()):
+    """Borra las celdas desde «fila» (valores y formato), salvo las indicadas."""
+    for (r, c) in [k for k in ws._cells if k[0] >= fila]:
+        if ws.cell(r, c).coordinate not in conservar:
+            del ws._cells[(r, c)]
+    for r in [r for r in ws.row_dimensions if r >= fila]:
+        del ws.row_dimensions[r]
+
+
+def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneos,
+                     duplicados, vivas):
+    import openpyxl
+    from openpyxl.formatting.formatting import ConditionalFormattingList
+    wb = openpyxl.load_workbook(io.BytesIO(plantilla))
+    n = len(productos) + 1
+    m = len(stock) + 1
+
+    # Productos: mismas 44 columnas, una fila por variante.
+    ws = wb["Productos"]
+    estilo = {c: ws.cell(2, c)._style for c in range(1, len(columnas) + 1)}
+    form_aa, form_ab = ws["AA2"].value, ws["AB2"].value
+    limpiar_desde(ws, 2)
+    for k, fila in enumerate(productos[columnas].itertuples(index=False), start=2):
+        for j, (col, valor) in enumerate(zip(columnas, fila), start=1):
+            celda = ws.cell(k, j, a_celda(col, valor))
+            celda._style = estilo[j]
+        if vivas:
+            ws.cell(k, 27).value = re.sub(r"(?<![$A-Z])([A-Z]{1,2})2\b", rf"\g<1>{k}", form_aa)
+            ws.cell(k, 28).value = re.sub(r"(?<![$A-Z])([A-Z]{1,2})2\b", rf"\g<1>{k}",
+                                          re.sub(r"(\$[AE]\$2:\$[AE]\$)\d+", rf"\g<1>{n}", form_ab))
+    validaciones = []
+    for dv in ws.data_validations.dataValidation:
+        col = re.match(r"[A-Z]+", str(dv.sqref).split()[0]).group(0)
+        if col in [re.match(r"[A-Z]+", str(v.sqref)).group(0) for v in validaciones]:
+            continue
+        dv.sqref = openpyxl.worksheet.cell_range.MultiCellRange(f"{col}2:{col}{max(n, 2)}")
+        validaciones.append(dv)
+    ws.data_validations.dataValidation = validaciones
+    reglas = [(str(r.sqref), r.rules) for r in ws.conditional_formatting]
+    ws.conditional_formatting = ConditionalFormattingList()
+    for rango, rs in reglas:
+        col = re.match(r"[A-Z]+", rango).group(0)
+        for regla in rs:
+            ws.conditional_formatting.add(f"{col}2:{col}{max(n, 2)}", regla)
+    ws.auto_filter.ref = f"A1:AR{max(n, 2)}"
+
+    # Productos_Resumen: solo las fórmulas ancla; Sheets calcula el resto.
+    ws = wb["Productos_Resumen"]
+    anclas = {c: ws[c].value for c in ("A2", "Q2", "R2")}
+    limpiar_desde(ws, 2)
+    for c, f in anclas.items():
+        texto = f.text if hasattr(f, "text") else f
+        texto = ajustar_rangos(texto, n, m)
+        texto = re.sub(r"(?<![!$A-Z])([A-DQ])2:\1\d+", rf"\g<1>2:\g<1>{n}", texto)
+        texto = re.sub(r"ARRAY_CONSTRAIN\((.*), \d+, 16\)", rf"ARRAY_CONSTRAIN(\1, {max(n - 1, 1)}, 16)",
+                       texto, flags=re.S)
+        ws[c] = texto
+
+    # Stock por Ubicación: renglones de la marca; las columnas derivadas por fórmula.
+    ws = wb["Stock por Ubicación"]
+    estilo = {c: ws.cell(2, c)._style for c in range(1, 11)}
+    form = {c: (ws.cell(2, c).value.text if hasattr(ws.cell(2, c).value, "text")
+                else ws.cell(2, c).value) for c in (2, 4, 5, 6, 8, 9)}
+    limpiar_desde(ws, 2)
+    fila_de = dict(zip(productos["_uid"], range(2, n + 1)))
+    for k, r in enumerate(stock.itertuples(index=False), start=2):
+        valores = {1: r[0], 3: r[2], 7: r[6], 10: r[9]}
+        for c in range(1, 11):
+            if c in valores:
+                v = valores[c]
+                ws.cell(k, c, float(v) if c == 7 and NUMERO.match(str(v)) else (v or None))
+            elif c == 9 and not vivas:
+                ws.cell(k, c, fila_de.get(r.uid))
+            else:
+                ws.cell(k, c, ajustar_rangos(re.sub(r"(?<![$A-Z])([A-Z])2\b", rf"\g<1>{k}",
+                                                    form[c]), n, m))
+            ws.cell(k, c)._style = estilo[c]
+    ws.auto_filter.ref = f"A1:J{max(m, 2)}"
+
+    # Bodegas: el filtro por bodega es una fórmula de Sheets sobre Stock por Ubicación.
+    for nombre in ("Bodega 25", "Bodega 43"):
+        ws = wb[nombre]
+        ancla = ws["A6"].value
+        ancla = ancla.text if hasattr(ancla, "text") else ancla
+        totales = {c: ws[c].value for c in ("E3", "G3")}
+        limpiar_desde(ws, 6)
+        ws["A6"] = ajustar_rangos(ancla, n, m)
+        fin = 6 + m + 500
+        for c, f in totales.items():
+            ws[c] = re.sub(r"I6:I\d+", f"I6:I{fin}", f)
+
+    # Escaneos (tabla Table_2) e Historial: solo los folios con piezas de la marca.
+    ws = wb["Escaneos"]
+    tabla = ws.tables["Table_2"]
+    estilo = {c: ws.cell(2, c)._style for c in range(1, 14)}
+    limpiar_desde(ws, 2)
+    for k, r in enumerate(escaneos.itertuples(index=False), start=2):
+        for c, v in enumerate(r[:13], start=1):
+            ws.cell(k, c, float(v) if c == 10 and NUMERO.match(str(v)) else (v or None))
+            ws.cell(k, c)._style = estilo[c]
+    tabla.ref = f"A1:M{max(len(escaneos) + 1, 2)}"
+    ws = wb["Historial de Escaneos"]
+    folios = set(escaneos["Folio de Escaneo"])
+    filas = []
+    for r in range(4, ws.max_row + 1):
+        if ws.cell(r, 3).value in folios:
+            filas.append([ws.cell(r, c).value for c in range(1, 10)])
+    estilo = {c: ws.cell(4, c)._style for c in range(1, 10)}
+    limpiar_desde(ws, 4)
+    for k, valores in enumerate(filas, start=4):
+        for c, v in enumerate(valores, start=1):
+            if isinstance(v, str) and v.startswith("="):
+                v = re.sub(r"(?<![$A-Z])C\d+\b", f"C{k}", v)
+            ws.cell(k, c, v)._style = estilo[c]
+
+    # Revisión Duplicados: grupos del Cíclico y registros iguales integrados en uno.
+    ws = wb["Revisión Duplicados"]
+    estilo = {c: ws.cell(2, c)._style for c in range(1, 48)}
+    limpiar_desde(ws, 2)
+    for k, fila in enumerate(duplicados, start=2):
+        for c, v in enumerate(fila, start=1):
+            col = (["Grupo", "Fuente", "Motivo"] + columnas)[c - 1]
+            ws.cell(k, c, a_celda(col, str(v)) if c > 3 else v)._style = estilo[c]
+    ws.auto_filter.ref = f"A1:AU{max(len(duplicados) + 1, 2)}"
+
+    wb.properties.creator = AUTOR
+    wb.save(ruta)
 
 
 def main():
     rev = Revision()
+    plantilla = PLANTILLA.read_bytes()  # Se lee antes de reescribir el Cíclico de Stetson.
     productos, hojas, criterios = leer_ciclico()
+    for c in ("_nota_previa", "_fuente_previa"):
+        if c not in productos.columns:
+            productos[c] = ""
+    columnas = [c for c in productos.columns if not c.startswith("_")]
     print(f"Cíclico: {len(productos)} filas con datos")
     productos["_uid"] = range(len(productos))
 
@@ -782,155 +1120,106 @@ def main():
     productos, ariat = integrar_base_ariat(productos, base_ariat, rev_ariat, rev)
     print(f"Con variantes solo Shopify Ariat: {len(productos)}")
 
-    # Diferencias con los precios vigentes antes de retirar esas columnas duplicadas.
-    for campo, vigente in (("Precio de compra", "Precio compra vigente"),
-                           ("Precio de venta", "Precio venta vigente")):
-        a, b = productos[campo].map(g.numero), productos[vigente].map(g.numero)
-        for i in productos.index[a.notna() & b.notna() & ((a - b).abs() >= 0.01)]:
-            rev.add(productos.loc[i], campo, productos.at[i, vigente], productos.at[i, campo],
-                    "Conflicto precio vigente",
-                    "La columna de precio vigente del Cíclico difiere; se conserva el precio "
-                    "del catálogo", f"{vigente}: {productos.at[i, vigente]}")
-
     inferir_marcas(productos, rev)
     codigo_de_sku(productos, rev)
+    estilo_desde_sku(productos, rev)
     normalizar_extra(productos, rev)
+    completar_desde_web(productos, rev)
     g.normalizar(productos, rev)
     completar_desde_ariat(productos, ariat, rev)  # La ficha de Shopify es mejor evidencia.
     aplicar_criterios(productos, rev, criterios)
-    productos, destino = integrar_duplicados(productos, rev)
+    # Segunda pasada: datos web que requieren la categoría ya asignada (Silueta) y la
+    # División o Unidad de las categorías que llegaron de la web.
+    completar_desde_web(productos, rev)
+    g.normalizar(productos, rev)
+    productos, destino, integrados = integrar_duplicados(productos, rev)
     print(f"Tras integrar productos iguales: {len(productos)}")
-    completar_padres(productos, rev)
     productos = validar(productos, criterios["parejas"])
 
     revision = rev.tabla()
     revision["_uid"] = revision["_uid"].map(lambda u: destino.get(u, u))
+    cambios = defaultdict(list)
+    for c in revision.to_dict("records"):
+        cambios[c["_uid"]].append(c)
+    productos["Notas de enriquecimiento / revisión"] = [
+        " | ".join(x for x in (limpiar_agregado(r["Notas de enriquecimiento / revisión"], MARCA_NOTA),
+                               nota_homologacion(r["_uid"], cambios, r)) if x)
+        for _, r in productos.iterrows()]
 
-    # Colisiones de código entre Productos y Shopify ya detectadas en el Cíclico.
-    dup = hojas["Revisión Duplicados"]
-    for _, r in dup[dup["Fuente"] != dup["Fuente"].iloc[0]].iterrows():
-        revision.loc[len(revision)] = {
-            "_uid": -1, "Código de barras": r["Código de barras"], "WB SKU": r["WB SKU"],
-            "Identificador interno": "", "WB Marca": r["WB Marca"], "Campo": "Código de barras",
-            "Valor origen": r["Código de barras"], "Valor final": r["Código de barras"],
-            "Tipo": "Conflicto plataforma", "Incidencia / acción": r["Motivo"]
-            + "; corregir el código en la plataforma", "Evidencia": f"{r['Fuente']} · grupo "
-            f"{r['Grupo']} · {r['Identificador interno']}", "Responsable de validación": ""}
+    productos["Fuentes de consulta"] = [
+        " | ".join(dict.fromkeys(x for x in f"{actual} | {previa}".split(" | ") if x))
+        for actual, previa in zip(productos["Fuentes de consulta"], productos["_fuente_previa"])]
+    productos["Libro"] = productos.apply(marca_archivo, axis=1).map(grupo_de)
+    variantes = productos[productos["Nivel G1522"] == "Variante"].copy()
 
-    # Stock por ubicación y escaneos, ligados al registro integrado por código o ID.
+    # Stock por ubicación y escaneos, ligados al registro integrado por código, ID o SKU.
     llave_cb = {}
-    for uid, principal, alternos in productos[["_uid", "Código de barras",
+    for uid, principal, alternos in variantes[["_uid", "Código de barras",
                                                "Códigos de barras alternos"]].itertuples(index=False):
         for c in [principal] + alternos.split(" | "):
             if c:
                 llave_cb[c.lstrip("0")] = uid
-    uid_id = productos[productos["Identificador interno"] != ""].set_index(
-        "Identificador interno")["_uid"]
-    stock = hojas["Stock por Ubicación"].drop(columns=["Fila en Productos"])
-    stock.insert(1, "Bodega", stock["Ubicación (NetSuite / Plataforma)"].map(
-        criterios["bodegas"]).fillna(""))
-    stock["_uid"] = stock["Código de barras"].str.lstrip("0").map(llave_cb)
-    stock["_uid"] = stock["_uid"].fillna(stock["Identificador interno"].map(uid_id)).fillna(-1)
-    stock["Stock en ubicación (Físico)"] = pd.to_numeric(stock["Stock en ubicación (Físico)"],
-                                                         errors="coerce")
-    escaneos = hojas["Escaneos"].rename(columns={"Marca": "WB Marca"})
-    escaneos.insert(3, "Bodega", escaneos["Ubicación / Rack"].map(criterios["bodegas"]).fillna(""))
-    escaneos["_uid"] = escaneos["UPC CODE"].str.lstrip("0").map(llave_cb).fillna(-1)
-    escaneos["Piezas Contadas"] = pd.to_numeric(escaneos["Piezas Contadas"], errors="coerce")
+    uid_id = variantes[variantes["Identificador interno"] != ""].drop_duplicates(
+        "Identificador interno").set_index("Identificador interno")["_uid"]
+    uid_sku = variantes[variantes["WB SKU"] != ""].drop_duplicates("WB SKU").set_index("WB SKU")["_uid"]
+    libro_uid = variantes.set_index("_uid")["Libro"]
+    stock = hojas["Stock por Ubicación"].copy()
+    stock["uid"] = stock["Código de barras"].str.lstrip("0").map(llave_cb)
+    stock["uid"] = stock["uid"].fillna(stock["Identificador interno"].map(uid_id))
+    stock["uid"] = stock["uid"].fillna(stock["WB SKU"].map(uid_sku))
+    stock["Libro"] = stock["uid"].map(libro_uid).fillna(stock["WB Marca"].map(grupo_de))
+    escaneos = hojas["Escaneos"].copy()
+    escaneos["uid"] = escaneos["UPC CODE"].str.lstrip("0").map(llave_cb)
+    escaneos["Libro"] = escaneos["uid"].map(libro_uid).fillna(escaneos["Marca"].map(grupo_de))
+    dup = hojas["Revisión Duplicados"]
+    # Un grupo de duplicados va completo a cada archivo de las marcas que toca.
+    libros_grupo = dup.assign(L=dup["WB Marca"].map(grupo_de)).groupby("Grupo")["L"].agg(set)
 
-    # Libro de cada fila: Marca principal → Licencia → WB Marca (Multimarca no es libro).
-    productos["Libro"] = productos.apply(marca_archivo, axis=1).map(grupo_de)
-    for i in productos.index[(productos["Libro"] != productos["WB Marca"].map(grupo_de))
-                             & (productos["WB Marca"] != "")]:
-        revision.loc[len(revision)] = {
-            "_uid": productos.at[i, "_uid"], "Código de barras": productos.at[i, "Código de barras"],
-            "WB SKU": productos.at[i, "WB SKU"],
-            "Identificador interno": productos.at[i, "Identificador interno"],
-            "WB Marca": productos.at[i, "WB Marca"], "Campo": "WB Marca",
-            "Valor origen": productos.at[i, "WB Marca"], "Valor final": productos.at[i, "WB Marca"],
-            "Tipo": "Requiere revisión", "Incidencia / acción":
-            "Marca principal o licencia apuntan a otra marca; el archivo sigue a la Marca "
-            "principal / licencia", "Evidencia": f"Marca principal: "
-            f"{productos.at[i, 'Marca principal']} · WB Licencia: {productos.at[i, 'WB Licencia']}",
-            "Responsable de validación": ""}
-    tamano = productos["Libro"].map(productos["Libro"].value_counts())
-    productos["Parte"] = productos["WB División"].replace("", "Sin división") \
-        .where(tamano > MAX_FILAS_LIBRO, "")
-    orden_partes = ["", "Ropa", "Calzado", "Denim", "Accesorios", "Sin división"]
-    partes = productos.groupby("Libro")["Parte"].agg(
-        lambda x: sorted(set(x), key=orden_partes.index))
-    destino_uid = productos.set_index("_uid")[["Libro", "Parte"]]
-    for tabla in (revision, stock, escaneos):
-        tabla["_uid"] = tabla["_uid"].astype(int)
-        tabla["Libro"] = tabla["_uid"].map(destino_uid["Libro"])
-        tabla["Parte"] = tabla["_uid"].map(destino_uid["Parte"])
-        sin_fila = tabla["Libro"].isna()
-        libro = tabla.loc[sin_fila, "WB Marca"].map(grupo_de)
-        tabla.loc[sin_fila, "Libro"] = libro.where(libro.isin(partes.index), "Sin marca")
-        tabla.loc[sin_fila, "Parte"] = tabla.loc[sin_fila, "Libro"].map(lambda l: partes[l][0])
-
-    if SALIDA.exists():
-        for viejo in sorted(SALIDA.rglob("*.xlsx")):
-            viejo.unlink()
-    SALIDA.mkdir(exist_ok=True)
-    desplegables = {"Marca principal": criterios["listas"]["Marca principal"]}
-    desplegables.update({f"WB {k}" if f"WB {k}" in ATRIBUTOS else k: v
-                         for k, v in criterios["listas"].items() if k != "Marca principal"})
-    indice = []
-
-    def registrar(ruta, tabla, grupo, parte, contenido, filas=None):
-        fila = {"Carpeta": ruta.parent.name, "Archivo": ruta.name, "Contenido": contenido,
-                "Marca / grupo": grupo, "División": parte or "Todas", "Filas": len(tabla),
-                "Columnas": len(tabla.columns), "Celdas": tabla.size,
-                "Tamaño (MB)": round(ruta.stat().st_size / 1e6, 2)}
-        if filas is not None:
-            estatus = filas["Estatus G1522"].value_counts()
-            fila.update({
-                "Variantes": int((filas["Nivel G1522"] == "Variante").sum()),
-                "Válido": int(estatus.get("Válido", 0)),
-                "Válido con avisos": int(estatus.get("Válido con avisos", 0)),
-                "Con incidencias": int(estatus.get("Con incidencias", 0)),
-                "Productos integrados": int((filas["Registros integrados"] != "").sum()),
-                "Validador NetSuite ✅": int((filas["Validador NetSuite / Odoo"] == "✅ PASA").sum()),
-                "Validador Shopify ✅": int((filas["Validador Shopify"] == "✅ PASA").sum())})
-        indice.append(fila)
-        print(f"{ruta.relative_to(SALIDA)}: {len(tabla)} filas, {tabla.size:,} celdas", flush=True)
-
-    for grupo in productos["Libro"].value_counts().index:
-        carpeta = SALIDA / slug(grupo)
-        carpeta.mkdir(exist_ok=True)
-        dividido = partes[grupo] != [""]
-        archivo_parte = {p: f"Productos_{slug(grupo)}{'_' + slug(p) if p else ''}.xlsx"
-                         for p in partes[grupo]}
-        for parte in partes[grupo]:
-            filas = productos[(productos["Libro"] == grupo) & (productos["Parte"] == parte)]
-            ruta = carpeta / archivo_parte[parte]
-            tabla = preparar_salida(filas, grupo == "Ariat")
-            escribir(ruta, tabla, desplegables)
-            registrar(ruta, tabla, grupo, parte, "Productos", filas)
-        for nombre, tabla, columnas in (
-                ("Revision", revision, Revision.COLUMNAS),
-                ("Stock_por_ubicacion", stock, [c for c in stock.columns
-                                               if c not in ("_uid", "Libro", "Parte")]),
-                ("Escaneos", escaneos, [c for c in escaneos.columns
-                                        if c not in ("_uid", "Libro", "Parte")])):
-            propia = tabla[tabla["Libro"] == grupo]
-            if not len(propia):
+    if not sys.argv[1:]:
+        for viejo in BASE.glob("Ciclico_1522_*.xlsx"):
+            if viejo not in (CICLICO, PLANTILLA):
+                viejo.unlink()
+    resumen = []
+    solo = sys.argv[1:]  # Opcional: generar solo estas marcas, p. ej. «Stetson Roper».
+    for grupo, filas in variantes.groupby("Libro", sort=False):
+        if solo and slug(grupo) not in solo and grupo not in solo:
+            continue
+        ruta = BASE / f"Ciclico_1522_{slug(grupo)}.xlsx"
+        vivas = len(filas) <= LIMITE_FORMULAS
+        filas = filas.copy()
+        if not vivas:
+            filas["Estatus de Validación"], filas["Detalle de Discrepancias"] = \
+                detalle_discrepancias(filas.reset_index(drop=True))
+        uids = set(filas["_uid"])
+        filas_dup = [[r["Grupo"], r["Fuente"], r["Motivo"]] + [r[c] for c in columnas]
+                     for _, r in dup[dup["Grupo"].map(lambda k: grupo in libros_grupo[k])].iterrows()]
+        siguiente = max([int(float(x[0])) for x in filas_dup if str(x[0]).replace(".0", "").isdigit()]
+                        or [0]) + 1
+        for uid, motivo, registros in integrados:
+            if uid not in uids:
                 continue
-            salida = propia[columnas].copy()
-            if dividido:  # Con Ariat partido por División, cada renglón dice a qué archivo va.
-                salida.insert(0, "Archivo de Productos", propia["Parte"].map(archivo_parte))
-            ruta = carpeta / f"{nombre}_{slug(grupo)}.xlsx"
-            escribir(ruta, salida)
-            registrar(ruta, salida, grupo, "", nombre.replace("_", " "))
-
-    listas = listas_criterios(criterios)
-    escribir(SALIDA / "Listas_Criterios_G1522.xlsx", listas)
-    registrar(SALIDA / "Listas_Criterios_G1522.xlsx", listas, "Todas", "", "Listas de Criterios")
-    tabla = pd.DataFrame(indice)
-    escribir(SALIDA / "Indice_bases_G1522.xlsx", tabla)
-    print(tabla[tabla["Contenido"] == "Productos"].drop(columns=["Carpeta", "Contenido"])
-          .to_string(index=False))
+            for k, reg in enumerate(registros):
+                filas_dup.append([siguiente, "Productos — registro conservado" if k == 0 else
+                                  "Productos — registro integrado en el anterior",
+                                  f"{MARCA_NOTA}: mismo producto ({motivo})"]
+                                 + [reg.get(c, "") for c in columnas])
+            siguiente += 1
+        stock_marca = stock[stock["Libro"] == grupo][
+            list(hojas["Stock por Ubicación"].columns) + ["uid"]]
+        escaneos_marca = escaneos[escaneos["Libro"] == grupo]
+        escribir_ciclico(ruta, plantilla, grupo, filas, columnas, stock_marca,
+                         escaneos_marca, filas_dup, vivas)
+        estatus = filas["Estatus G1522"].value_counts()
+        resumen.append({"Archivo": ruta.name, "Variantes": len(filas),
+                        "Fórmulas vivas": "Sí" if vivas else "Validación calculada",
+                        "Válido": int(estatus.get("Válido", 0)),
+                        "Válido con avisos": int(estatus.get("Válido con avisos", 0)),
+                        "Con incidencias": int(estatus.get("Con incidencias", 0)),
+                        "Productos integrados": int((filas["Registros integrados"] != "").sum()),
+                        "Stock por ubicación": len(stock_marca), "Escaneos": len(escaneos_marca),
+                        "MB": round(ruta.stat().st_size / 1e6, 2)})
+        print(resumen[-1], flush=True)
+    print(pd.DataFrame(resumen).to_string(index=False))
 
 
 if __name__ == "__main__":
