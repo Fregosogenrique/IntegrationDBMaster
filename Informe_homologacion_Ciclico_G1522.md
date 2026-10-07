@@ -105,25 +105,25 @@ Cada marca tiene su carpeta en `Bases_Sheets_G1522/`, igual que Stetson, y su ar
 
 | Archivo | Variantes | Válido | Con avisos | Con incidencias | Integrados | Stock por ubicación |
 |----|----|----|----|----|----|----|
-| `Ciclico_1522_Ariat.xlsx` | 49,058 | 32,782 | 15,669 | 607 | 112 | 17,582 |
-| `Ciclico_1522_Stetson.xlsx` | 2,508 | 1,451 | 233 | 824 | 0 | 3,970 |
-| `Ciclico_1522_Montana_West_Wrangler.xlsx` | 1,062 | 186 | 611 | 265 | 76 | 1,012 |
-| `Ciclico_1522_REFLO.xlsx` | 652 | 0 | 285 | 367 | 0 | 490 |
-| `Ciclico_1522_Happy_Socks.xlsx` | 570 | 0 | 211 | 359 | 0 | 252 |
-| `Ciclico_1522_CAPSLAB.xlsx` | 369 | 0 | 368 | 1 | 0 | 769 |
-| `Ciclico_1522_Roper.xlsx` | 284 | 0 | 283 | 1 | 0 | 262 |
-| `Ciclico_1522_Denver.xlsx` | 202 | 121 | 1 | 80 | 0 | 240 |
-| `Ciclico_1522_Sin_Marca.xlsx` | 113 | 0 | 0 | 113 | 0 | 6 |
-| `Ciclico_1522_Tru_Western.xlsx` | 51 | 3 | 24 | 24 | 25 | 96 |
-| `Ciclico_1522_Willow_Lane.xlsx` | 40 | 40 | 0 | 0 | 0 | 78 |
-| `Ciclico_1522_Ranch_Corral.xlsx` | 22 | 0 | 22 | 0 | 0 | 6 |
-| `Ciclico_1522_Generico.xlsx` | 11 | 0 | 1 | 10 | 0 | 21 |
-| `Ciclico_1522_Yellowstone.xlsx` | 4 | 0 | 0 | 4 | 0 | 7 |
-| **Total** | **54,946** | | | | **213** | **24,791** |
+| `Ariat/Ciclico_1522_Ariat.xlsx` | 49,058 | 31,899 | 15,282 | 1,877 | 112 | 28,926 |
+| `Stetson/Ciclico_1522_Stetson.xlsx` | 2,521 | 1,463 | 233 | 825 | 0 | 4,601 |
+| `Montana_West_Wrangler/Ciclico_1522_Montana_West_Wrangler.xlsx` | 1,063 | 165 | 611 | 287 | 77 | 1,117 |
+| `REFLO/Ciclico_1522_REFLO.xlsx` | 652 | 0 | 285 | 367 | 0 | 490 |
+| `Happy_Socks/Ciclico_1522_Happy_Socks.xlsx` | 570 | 0 | 211 | 359 | 0 | 252 |
+| `CAPSLAB/Ciclico_1522_CAPSLAB.xlsx` | 369 | 0 | 368 | 1 | 0 | 769 |
+| `Roper/Ciclico_1522_Roper.xlsx` | 284 | 0 | 283 | 1 | 0 | 262 |
+| `Denver/Ciclico_1522_Denver.xlsx` | 203 | 121 | 1 | 81 | 0 | 238 |
+| `Sin_Marca/Ciclico_1522_Sin_Marca.xlsx` | 175 | 0 | 0 | 175 | 0 | 6 |
+| `Tru_Western/Ciclico_1522_Tru_Western.xlsx` | 51 | 3 | 24 | 24 | 25 | 96 |
+| `Willow_Lane/Ciclico_1522_Willow_Lane.xlsx` | 40 | 40 | 0 | 0 | 0 | 77 |
+| `Ranch_Corral/Ciclico_1522_Ranch_Corral.xlsx` | 38 | 16 | 22 | 0 | 0 | 38 |
+| `Generico/Ciclico_1522_Generico.xlsx` | 11 | 0 | 1 | 10 | 0 | 21 |
+| `Yellowstone/Ciclico_1522_Yellowstone.xlsx` | 11 | 7 | 0 | 4 | 0 | 21 |
+| **Total** | **55,046** | | | | **214** | **36,914** |
 
 Válido, con avisos y con incidencias corresponden a la validación G1522 completa. Su detalle está en «Notas de enriquecimiento / revisión».
 
-**Marca de cada archivo.** Se usa la Marca principal. Si es Multimarca o está vacía, manda WB Licencia; si la licencia no es una marca, WB Marca. Las filas sin marca la toman del mismo estilo, del nombre en la descripción o del prefijo del código del proveedor. Montana West y Wrangler comparten archivo. Las 113 filas sin evidencia de marca están en `Sin_Marca`.
+**Marca de cada archivo.** Se usa la Marca principal. Si es Multimarca o está vacía, manda WB Licencia; si la licencia no es una marca, WB Marca. Las filas sin marca la toman del mismo estilo, del nombre en la descripción o del prefijo del código del proveedor. Montana West y Wrangler comparten archivo. Las 175 filas sin evidencia de marca están en `Sin_Marca`.
 
 **Hojas derivadas por marca.**
 - **Stock por Ubicación:** sale de las columnas de ubicaciones de Productos de la marca y de sus escaneos.
