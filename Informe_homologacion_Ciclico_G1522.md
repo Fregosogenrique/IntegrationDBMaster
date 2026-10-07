@@ -1,8 +1,8 @@
 # Informe de homologación del Cíclico G1522 por marca
 
-*Revisión de `Ciclico_1522_investigado.xlsx`, un Cíclico por marca con la estructura de `Ciclico_1522_Stetson.xlsx` e investigación en línea de los datos faltantes*
+*Revisión de `Ciclico_1522_investigado.xlsx`, un Cíclico por marca con el formato de `Bases_Sheets_G1522/Stetson/Ciclico_1522_Stetson.xlsx` e investigación en línea de los datos faltantes*
 
-Resultado: un archivo `Ciclico_1522_<Marca>.xlsx` por marca en la raíz del repositorio, con el inventario actual de cada artículo. Se genera con `python3 homologar_ciclico_g1522.py` (≈8 minutos). La investigación se actualiza con `python3 investigar_web_g1522.py`.
+Resultado: un archivo por marca en su carpeta, `Bases_Sheets_G1522/<Marca>/Ciclico_1522_<Marca>.xlsx`, con el inventario actual de cada artículo. Se genera con `python3 homologar_ciclico_g1522.py` (≈15 minutos). La investigación se actualiza con `python3 investigar_web_g1522.py`.
 
 ## 1. Inventario actual por marca
 
@@ -14,7 +14,7 @@ Cada Cíclico por marca reúne el inventario de todas las fuentes del repositori
 | `Ciclico_1522_investigado.xlsx`, hoja Stock por Ubicación | NetSuite 28/09/2026 | Corte anterior para medir el movimiento neto |
 | `Products.csv` (Shopify Ariat) | 05/10/2026 | Existencia por tienda Ariat: en mano, disponible, comprometido y por llegar |
 | `Ciclico_1522_investigado.xlsx`, hoja Stock por Ubicación | 01/10/2026 | Shopify Stetson México, Shopify Western Brothers y Odoo Universal Unique Brands |
-| Hoja Escaneos del Cíclico | 09/09/2026 | Piezas contadas en rack |
+| Hoja Escaneos de `Bases_Sheets_G1522/Stetson` | 06/10/2026 | Piezas contadas en rack (ciclo en curso de Stetson) |
 
 **Cómo se integra en la estructura del Cíclico.**
 
@@ -22,10 +22,10 @@ Cada Cíclico por marca reúne el inventario de todas las fuentes del repositori
   - Se agregaron a su marca los 100 artículos nuevos de NetSuite que no estaban en el Cíclico.
   - Un campo vacío del Cíclico se completa con lo capturado en NetSuite; nunca se sobrescribe un valor.
   - La tienda Shopify Ariat se agregó a «📍 Ubicación en plataformas» y a «Ubicaciones con stock (plataformas)».
-- **Stock por Ubicación:** se rehízo con el inventario actual, que alimenta solo a Bodega 25, Bodega 43 y Criterios:
-  - NetSuite 06/10, todos los renglones con existencia distinta de 0.
-  - Shopify Ariat por tienda.
-  - Las plataformas del 01/10.
+- **Stock por Ubicación:** lo arma la fórmula de la plantilla a partir de Productos, así que refleja el inventario actual. Alimenta a Bodega 25, Bodega 43 y Criterios:
+  - NetSuite 06/10, desde «Ubicaciones con stock (NetSuite)» y «Ubicaciones con existencia negativa».
+  - Shopify Ariat por tienda y las plataformas del 01/10, desde «Ubicaciones con stock (plataformas)».
+  - Los escaneos, como «Rack físico (escaneo)».
 - **Hoja nueva «Inventario»:** lista para usarse en Sheets, con un renglón por artículo de la marca que tiene existencia, comprometido, tránsito, existencia en plataformas, conteo o que tenía existencia al 28/09. Trae:
   - Identificación del artículo y precios.
   - Totales NetSuite y en mano en ubicaciones inactivas.
@@ -90,11 +90,18 @@ Los renglones de NetSuite y de Shopify Ariat quedaron ligados al 100 % a un art�
 
 ## 2. Archivos por marca
 
-Cada archivo repite la estructura de `Ciclico_1522_Stetson.xlsx`:
+Cada marca tiene su carpeta en `Bases_Sheets_G1522/`, igual que Stetson, y su archivo repite el formato de `Bases_Sheets_G1522/Stetson/Ciclico_1522_Stetson.xlsx` para que los scripts de Google Sheets funcionen igual en todas:
 
-- **Hojas:** las mismas 12, más «Inventario» y «KPIs Inventario» al final: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
-- **Productos:** las mismas 44 columnas, con una fila por variante, igual que la plantilla. Los padres o agrupadores no van en Productos.
-- **Funcionamiento:** las mismas fórmulas, listas desplegables, formatos condicionales y tablas. Los rangos fijos de la plantilla (`$2502`, `$24792`, `65990`) se ajustan al tamaño de cada marca.
+- **Hojas:** las mismas 12, en el mismo orden, más «Inventario» y «KPIs Inventario» al final: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
+- **Productos:** las mismas 44 columnas, con una fila por variante. Los padres o agrupadores no van en Productos.
+- **Fórmulas de Sheets:** las mismas, con el formato en que Sheets las exporta (`__xludf.DUMMYFUNCTION` y `COMPUTED_VALUE`), para que Sheets las restaure al importar. El archivo ya trae el resultado calculado, así que se ve completo antes de recalcular.
+  - Escaneo Diario: las búsquedas `MAP`/`XLOOKUP` contra Productos.
+  - Stock por Ubicación: la fórmula única `LET`/`REDUCE` de A2.
+  - Bodega 25 y 43: el filtro por bodega.
+  - Productos_Resumen y Criterios.
+- **Listas, formatos y tablas:** las mismas listas desplegables, formatos condicionales, tablas (`Table_1`, `Table_2`), filtros y paneles inmovilizados.
+- **Rangos:** los rangos hacia Productos cubren todas las filas de la marca. En la plantilla, Escaneo Diario solo buscaba hasta la fila 2000 de 2,502, y las Bodegas hasta el renglón 3,552 de 4,529. En las Bodegas queda un margen de 1,000 renglones para nuevos escaneos.
+- **Escaneos e Historial:** los de Stetson son los de su archivo, con el ciclo del 06/10 (560 escaneos). Las demás marcas no tenían escaneos propios; si se escanea en sus archivos, esos escaneos se conservan al regenerar.
 
 | Archivo | Variantes | Válido | Con avisos | Con incidencias | Integrados | Stock por ubicación |
 |----|----|----|----|----|----|----|
@@ -119,14 +126,13 @@ Válido, con avisos y con incidencias corresponden a la validación G1522 comple
 **Marca de cada archivo.** Se usa la Marca principal. Si es Multimarca o está vacía, manda WB Licencia; si la licencia no es una marca, WB Marca. Las filas sin marca la toman del mismo estilo, del nombre en la descripción o del prefijo del código del proveedor. Montana West y Wrangler comparten archivo. Las 113 filas sin evidencia de marca están en `Sin_Marca`.
 
 **Hojas derivadas por marca.**
-- **Stock por Ubicación:** solo trae los renglones de la marca, ligados por código, ID o SKU (los 24,791 quedan repartidos).
-- **Escaneos e Historial:** solo los folios con piezas de la marca (hoy solo Stetson).
-- **Revisión Duplicados:** los grupos del Cíclico de la marca y los registros que se integraron en uno.
+- **Stock por Ubicación:** sale de las columnas de ubicaciones de Productos de la marca y de sus escaneos.
+- **Revisión Duplicados:** los grupos del Cíclico de la marca y los registros que se integraron en uno. La lista del filtro de estilos (H4) es la de la marca.
 - **Productos_Resumen y Bodegas:** se calculan solas en Google Sheets.
 
-**Ariat y la memoria del navegador.** En la plantilla, Detalle de Discrepancias compara cada fila contra toda la columna (`COUNTIF`, `XMATCH`). La fila de Stock por Ubicación también se busca en todo Productos. Con las 49 mil variantes de Ariat son miles de millones de comparaciones: eso era lo que agotaba la memoria. En Ariat esas dos columnas se escriben ya calculadas, con la misma lógica de la fórmula; el resto de las fórmulas sigue vivo. En las demás marcas todo queda en fórmulas. Con Ariat no conviene reordenar Productos, porque Stock por Ubicación apunta al número de fila: es mejor usar filtros.
+**Ariat y la memoria del navegador.** En la plantilla, Detalle de Discrepancias compara cada fila contra toda la columna (`COUNTIF`, `XMATCH`). La fila de Stock por Ubicación también se busca en todo Productos. Con las 49 mil variantes de Ariat son miles de millones de comparaciones: eso era lo que agotaba la memoria. En Ariat esas columnas se escriben ya calculadas, con la misma lógica de la fórmula. Stock por Ubicación también va calculado (las mismas 11 columnas y el mismo orden): su `REDUCE`/`VSTACK` crece con el cuadrado de los renglones y Sheets no lo termina con 49 mil variantes. El resto de las fórmulas sigue vivo; en las demás marcas todo queda en fórmulas. Con Ariat no conviene reordenar Productos, porque Stock por Ubicación apunta al número de fila: es mejor usar filtros.
 
-**Los archivos son la versión de trabajo.** Lo que se corrija a mano en los 26 atributos de cualquier `Ciclico_1522_<Marca>.xlsx` se conserva al regenerar. Por ejemplo, se conservaron los SKU `2XL` → `XXL` y las licencias capturadas en Stetson. Existencias, ubicaciones y escaneos siempre se toman del Cíclico integrado.
+**Los archivos son la versión de trabajo.** Lo que se corrija a mano en los 26 atributos de cualquier `Bases_Sheets_G1522/<Marca>/Ciclico_1522_<Marca>.xlsx` se conserva al regenerar, igual que sus escaneos. Por ejemplo, se conservaron los SKU `2XL` → `XXL`, las licencias capturadas y el código de barras corregido de `9915500-BK-42` en Stetson. Existencias y ubicaciones se toman de las fuentes de inventario.
 
 ## 3. Cómo se trató cada campo
 

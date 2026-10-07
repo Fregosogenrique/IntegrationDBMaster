@@ -47,7 +47,10 @@ import inventario_g1522 as inv
 BASE = Path(__file__).resolve().parent
 CICLICO = BASE / "Ciclico_1522_investigado.xlsx"
 ARIAT = BASE / "Base_Unificada_Ariat_G1522.xlsx"
-PLANTILLA = BASE / "Ciclico_1522_Stetson.xlsx"
+# Cada marca trabaja en Bases_Sheets_G1522/<Marca>/Ciclico_1522_<Marca>.xlsx; el de Stetson
+# es la plantilla de estructura, fórmulas y formato para todas.
+CARPETA = BASE / "Bases_Sheets_G1522"
+PLANTILLA = CARPETA / "Stetson" / "Ciclico_1522_Stetson.xlsx"
 WEB = BASE / "Investigacion_web_G1522.csv"
 FECHA = "06/10/2026"
 # Arriba de este número de variantes, la validación de Productos (AA/AB) y la fila de
@@ -87,6 +90,9 @@ NUMERICAS = ["Stock Sistema NetSuite", "Disponible NetSuite", "Stock Shopify Ste
 TEXTOS_UNION = ["Ubicaciones con stock (NetSuite)", "Ubicaciones con existencia negativa",
                 "📍 Ubicación en plataformas (Plataforma + Marca)",
                 "Ubicaciones con stock (plataformas)", "Fuentes de consulta"]
+# Separador propio de cada columna: la fórmula de Stock por Ubicación parte las de NetSuite
+# por «; » y la de plataformas por « | ».
+SEPARADOR = {"Ubicaciones con stock (NetSuite)": "; ", "Ubicaciones con existencia negativa": "; "}
 SHOPIFY_ARIAT = ["Shopify Handle", "Shopify ID producto", "Shopify ID variante", "Shopify Estatus"]
 # Marcas de lo que este script agrega a las columnas de texto del Cíclico; al releer un
 # Cíclico por marca ya generado se quitan para no duplicarlas.
@@ -139,6 +145,53 @@ def leer_ciclico():
     return productos, hojas, leer_criterios(criterios)
 
 
+COLUMNAS_ESCANEO = ["Folio de Escaneo", "Fecha / Hora", "Ubicación / Rack", "UPC CODE", "SKU",
+                    "Marca", "Descripción", "Categoría", "Talla / Size", "Piezas Contadas",
+                    "Piezas encontradas", "Auditor / Responsable", "Estado de Conteo",
+                    "Detalle de Modificaciones / Alertas"]
+
+
+def celdas_hoja(ruta, hoja, desde, columnas):
+    """Renglones con datos de una hoja, con sus tipos (fechas, horas y números)."""
+    df = pd.read_excel(ruta, sheet_name=hoja, header=None, engine="calamine")
+    df = df.iloc[desde:, :columnas].reindex(columns=range(columnas))
+    df = df.astype(object).where(df.notna(), None)
+    filas = [list(r) for r in df.itertuples(index=False)]
+    return [f for f in filas if any(v not in (None, "") for v in f)]
+
+
+def tabla_escaneos(celdas):
+    """Escaneos como tabla (texto) para ligarlos a Productos; «_celdas» guarda los valores."""
+    texto = [["" if v is None else (f"{v:g}" if isinstance(v, float) else str(v)).strip()
+              for v in fila] for fila in celdas]
+    df = pd.DataFrame(texto, columns=COLUMNAS_ESCANEO)
+    df["_celdas"] = celdas
+    df["Piezas Contadas"] = inv.numero(df["Piezas Contadas"])
+    return df
+
+
+def leer_escaneos():
+    """Escaneos e Historial vigentes.
+
+    El conteo de una marca con Cíclico en Bases_Sheets_G1522 es el de ese archivo (ahí se
+    escanea; Stetson inició el ciclo del 06/10). Las demás toman los del Cíclico integrado.
+    Devuelve {carpeta: (escaneos, historial)} y (escaneos, historial) del integrado."""
+    por_marca = {}
+    for ruta in sorted(CARPETA.glob("*/Ciclico_1522_*.xlsx")):
+        por_marca[ruta.parent.name] = (tabla_escaneos(celdas_hoja(ruta, "Escaneos", 1, 14)),
+                                       celdas_hoja(ruta, "Historial de Escaneos", 3, 9))
+    celdas = []
+    for fila in celdas_hoja(CICLICO, "Escaneos", 1, 13):
+        fila.insert(10, None)  # «Piezas encontradas» es nueva en la plantilla.
+        if isinstance(fila[1], str) and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?", fila[1]):
+            fila[1] = pd.Timestamp(fila[1]).to_pydatetime()
+        for j in (9, 10):
+            if isinstance(fila[j], str) and NUMERO.match(fila[j]):
+                fila[j] = float(fila[j])
+        celdas.append(fila)
+    return por_marca, (tabla_escaneos(celdas), celdas_hoja(CICLICO, "Historial de Escaneos", 3, 9))
+
+
 def llave_fila(df):
     """Llave para reconocer la misma fila entre el Cíclico y un Cíclico por marca."""
     llave = df["Código de barras"].str.lstrip("0").where(
@@ -162,11 +215,19 @@ def segmento(texto, marca):
     return " | ".join(p for p in texto.split(" | ") if p.startswith(marca))
 
 
+def archivos_por_marca():
+    """Cíclico de trabajo de cada marca: el de Bases_Sheets_G1522/<Marca>/ y, mientras una
+    marca no tenga carpeta, el de la raíz (estructura anterior)."""
+    archivos = {f.stem: f for f in sorted(BASE.glob("Ciclico_1522_*.xlsx")) if f != CICLICO}
+    archivos |= {f.stem: f for f in sorted(CARPETA.glob("*/Ciclico_1522_*.xlsx"))}
+    return archivos
+
+
 def aplicar_ciclicos_por_marca(productos):
-    """Los Cíclicos por marca (Ciclico_1522_<Marca>.xlsx) son la versión de trabajo: lo que
-    se corrigió ahí en los 26 atributos manda sobre el Cíclico integrado. Existencias,
-    ubicaciones, notas y fuentes siempre salen del Cíclico integrado."""
-    archivos = [f for f in sorted(BASE.glob("Ciclico_1522_*.xlsx")) if f != CICLICO]
+    """Los Cíclicos por marca son la versión de trabajo: lo que se corrigió ahí en los 26
+    atributos manda sobre el Cíclico integrado. Existencias, ubicaciones, notas y fuentes
+    siempre salen del Cíclico integrado."""
+    archivos = list(archivos_por_marca().values())
     if not archivos:
         return productos
     trabajo = pd.concat([leer_hoja(pd.ExcelFile(f, engine="calamine"), "Productos")
@@ -723,7 +784,7 @@ def integrar_duplicados(df, rev):
                     df.at[p, c] = f"{(a or 0) + b:g}"
             for c in TEXTOS_UNION:
                 partes = [x for x in (df.at[p, c], o[c]) if x]
-                df.at[p, c] = "; ".join(dict.fromkeys(partes))
+                df.at[p, c] = SEPARADOR.get(c, " | ").join(dict.fromkeys(partes))
         df.at[p, "Códigos de barras alternos"] = " | ".join(dict.fromkeys(alternos))
         df.at[p, "Registros integrados"] = f"{motivo}: " + " | ".join(integrados)
         panel = f"{MARCA_NOTA}: integra {len(otros)} registro(s) iguales por {motivo}"
@@ -978,13 +1039,17 @@ COLUMNAS_NUMERICAS = {"Precio de compra", "Precio de venta", "Stock Sistema NetS
                       "Stock Odoo Universal Unique Brands"}
 
 
-def ajustar_rangos(formula, filas_productos, filas_stock):
-    """Lleva los rangos fijos de la plantilla al tamaño del libro de la marca."""
-    formula = re.sub(r"(Productos!\$?[A-Z]{1,2}\$?2:\$?[A-Z]{1,2}\$?)(\d+)",
-                     lambda m: f"{m.group(1)}{filas_productos}", formula)
-    formula = re.sub(r"('Stock por Ubicación'!\$A\$2:\$J\$)(\d+)",
-                     lambda m: f"{m.group(1)}{max(filas_stock, 2)}", formula)
-    return formula
+def ajustar_rangos(formula, hoja, filas, minimo=0):
+    """Lleva los rangos fijos de la plantilla hacia otra hoja al tamaño del libro de la marca.
+
+    «hoja» es la referencia tal como va en la fórmula (Productos, Escaneos o 'Stock por
+    Ubicación'); «minimo» conserva el margen de la plantilla cuando es mayor."""
+    patron = re.escape(hoja) + r"!\$?[A-Z]{1,2}\$?[12]:\$?[A-Z]{1,2}\$?"
+    return re.sub(rf"({patron})(\d+)", lambda m: f"{m.group(1)}{max(filas, minimo)}", formula)
+
+
+def texto_formula(valor):
+    return valor.text if hasattr(valor, "text") else valor
 
 
 def limpiar_desde(ws, fila, conservar=()):
@@ -996,8 +1061,82 @@ def limpiar_desde(ws, fila, conservar=()):
         del ws.row_dimensions[r]
 
 
-def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneos,
+def literal(valor):
+    if isinstance(valor, (int, float)):
+        return repr(float(valor))
+    return '"' + str(valor).replace('"', '""') + '"'
+
+
+def calculado(valor):
+    """Celda del resultado de una fórmula de Sheets, como la exporta Sheets: al importarla,
+    Sheets la toma como parte del arreglo y la recalcula."""
+    return f'=IFERROR(__xludf.DUMMYFUNCTION("""COMPUTED_VALUE"""),{literal(valor)})'
+
+
+def con_valor(formula, valor):
+    """Cambia el valor calculado que acompaña a una fórmula exportada por Sheets."""
+    return formula[:formula.rindex('"),') + 3] + literal(valor) + ")"
+
+
+def bodega_de(ubicacion, bodegas):
+    """Bodega de una ubicación, igual que la columna K de Stock por Ubicación."""
+    b = bodegas.get(ubicacion.strip().lower(), "")
+    if b:
+        return b
+    u = ubicacion.lower()
+    if "bodega 25" in u or "b25 " in u + " ":
+        return "Bodega 25"
+    return "Bodega 43" if "g1522" in u else ""
+
+
+def stock_desde_productos(filas, escaneos, bodegas):
+    """Los renglones que arma la fórmula A2 de Stock por Ubicación a partir de Productos
+    (AE, AJ y AR) y de Escaneos, en el mismo orden y con las mismas 11 columnas."""
+    filas = filas.reset_index(drop=True)
+    salida = []
+
+    def cantidad(texto, parte):
+        # La fórmula usa VALUE(): un texto que no sea número la deja en error completa.
+        if not NUMERO.match(texto.strip()):
+            raise ValueError(f"Cantidad ilegible para la fórmula de Stock por Ubicación: «{parte}»")
+        return float(texto)
+
+    def agregar(k, r, ubicacion, cantidad, sistema):
+        salida.append([ubicacion, r["Código de barras"], r["WB SKU"], r["WB Marca"],
+                       r["WB Descripcion"], cantidad, k + 2, r["Identificador interno"],
+                       r["WB Talla"], sistema, bodega_de(ubicacion, bodegas)])
+
+    for columna in ("Ubicaciones con stock (NetSuite)", "Ubicaciones con existencia negativa"):
+        for k, r in filas.iterrows():
+            if "(" not in r[columna]:
+                continue
+            for parte in [p for p in r[columna].split("; ") if p]:
+                ubicacion, _, resto = parte.partition("(")
+                agregar(k, r, ubicacion.strip(), cantidad(resto.split(")")[0], parte), "NetSuite")
+    for k, r in filas.iterrows():
+        for parte in [p for p in r["Ubicaciones con stock (plataformas)"].split(" | ") if p]:
+            ubicacion, _, resto = parte.partition(":")
+            ubicacion = ubicacion.strip()
+            agregar(k, r, ubicacion, cantidad(resto[:20], parte), ubicacion.split(" ›")[0])
+    if len(escaneos):
+        fila_sku = {s: k + 2 for k, s in reversed(list(enumerate(filas["WB SKU"]))) if s}
+        id_sku = {s: i for s, i in zip(filas["WB SKU"], filas["Identificador interno"]) if s}
+        e = escaneos[(escaneos["Ubicación / Rack"] != "") & (escaneos["Piezas Contadas"] > 0)]
+        grupos = e.groupby(["Ubicación / Rack", "UPC CODE", "SKU", "Marca", "Descripción",
+                            "Talla / Size"], sort=True)["Piezas Contadas"].sum()
+        for (ubicacion, upc, sku, marca, descripcion, talla), piezas in grupos.items():
+            alterno = sku.replace("-2XL", "-XXL").replace("-3XL", "-XXXL")
+            salida.append([ubicacion, upc, sku, marca, descripcion, piezas,
+                           fila_sku.get(alterno, fila_sku.get(sku, "")),
+                           id_sku.get(alterno, id_sku.get(sku, "")), talla,
+                           "Rack físico (escaneo)", "Bodega 25"])
+    return salida
+
+
+def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, escaneos, historial,
                      duplicados, vivas, inventario=None):
+    """Cíclico de la marca con la estructura de Bases_Sheets_G1522/Stetson: mismas hojas,
+    fórmulas, listas, formatos y tablas; los rangos fijos se llevan al tamaño de la marca."""
     import openpyxl
     from openpyxl.formatting.formatting import ConditionalFormattingList
     wb = openpyxl.load_workbook(io.BytesIO(plantilla))
@@ -1005,7 +1144,9 @@ def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneo
         if nombre not in HOJAS_CICLICO:
             del wb[nombre]
     n = len(productos) + 1
-    m = len(stock) + 1
+    crit = wb["Criterios"]
+    bodegas = {str(crit.cell(r, 7).value).strip().lower(): str(crit.cell(r, 11).value or "").strip()
+               for r in range(6, 201) if crit.cell(r, 7).value}
 
     # Productos: mismas 44 columnas, una fila por variante.
     ws = wb["Productos"]
@@ -1036,74 +1177,74 @@ def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneo
             ws.conditional_formatting.add(f"{col}2:{col}{max(n, 2)}", regla)
     ws.auto_filter.ref = f"A1:AR{max(n, 2)}"
 
-    # Productos_Resumen: solo las fórmulas ancla; Sheets calcula el resto.
-    ws = wb["Productos_Resumen"]
-    anclas = {c: ws[c].value for c in ("A2", "Q2", "R2")}
-    limpiar_desde(ws, 2)
-    for c, f in anclas.items():
-        texto = f.text if hasattr(f, "text") else f
-        texto = ajustar_rangos(texto, n, m)
-        texto = re.sub(r"(?<![!$A-Z])([A-DQ])2:\1\d+", rf"\g<1>2:\g<1>{n}", texto)
-        texto = re.sub(r"ARRAY_CONSTRAIN\((.*), \d+, 16\)", rf"ARRAY_CONSTRAIN(\1, {max(n - 1, 1)}, 16)",
-                       texto, flags=re.S)
-        ws[c] = texto
-
-    # Stock por Ubicación: renglones de la marca; las columnas derivadas por fórmula.
-    ws = wb["Stock por Ubicación"]
-    estilo = {c: ws.cell(2, c)._style for c in range(1, 11)}
-    form = {c: (ws.cell(2, c).value.text if hasattr(ws.cell(2, c).value, "text")
-                else ws.cell(2, c).value) for c in (2, 4, 5, 6, 8, 9)}
-    limpiar_desde(ws, 2)
-    fila_de = dict(zip(productos["_uid"], range(2, n + 1)))
-    for k, r in enumerate(stock.itertuples(index=False), start=2):
-        valores = {1: r[0], 3: r[2], 7: r[6], 10: r[9]}
-        for c in range(1, 11):
-            if c in valores:
-                v = valores[c]
-                ws.cell(k, c, float(v) if c == 7 and NUMERO.match(str(v)) else (v or None))
-            elif c == 9 and not vivas:
-                ws.cell(k, c, fila_de.get(r.uid))
-            else:
-                ws.cell(k, c, ajustar_rangos(re.sub(r"(?<![$A-Z])([A-Z])2\b", rf"\g<1>{k}",
-                                                    form[c]), n, m))
-            ws.cell(k, c)._style = estilo[c]
-    ws.auto_filter.ref = f"A1:J{max(m, 2)}"
-
-    # Bodegas: el filtro por bodega es una fórmula de Sheets sobre Stock por Ubicación.
-    for nombre in ("Bodega 25", "Bodega 43"):
-        ws = wb[nombre]
-        ancla = ws["A6"].value
-        ancla = ancla.text if hasattr(ancla, "text") else ancla
-        totales = {c: ws[c].value for c in ("E3", "G3")}
-        limpiar_desde(ws, 6)
-        ws["A6"] = ajustar_rangos(ancla, n, m)
-        fin = 6 + m + 500
-        for c, f in totales.items():
-            ws[c] = re.sub(r"I6:I\d+", f"I6:I{fin}", f)
-
-    # Escaneos (tabla Table_2) e Historial: solo los folios con piezas de la marca.
+    # Escaneos (tabla Table_2, 14 columnas) e Historial: los folios de la marca.
     ws = wb["Escaneos"]
     tabla = ws.tables["Table_2"]
-    estilo = {c: ws.cell(2, c)._style for c in range(1, 14)}
+    fin_tabla = int(re.search(r"(\d+)$", tabla.ref).group(1))
+    estilo = {c: ws.cell(2, c)._style for c in range(1, 15)}
     limpiar_desde(ws, 2)
-    for k, r in enumerate(escaneos.itertuples(index=False), start=2):
-        for c, v in enumerate(r[:13], start=1):
-            ws.cell(k, c, float(v) if c == 10 and NUMERO.match(str(v)) else (v or None))
-            ws.cell(k, c)._style = estilo[c]
-    tabla.ref = f"A1:M{max(len(escaneos) + 1, 2)}"
+    for k, valores in enumerate(escaneos["_celdas"], start=2):
+        for c, v in enumerate(valores, start=1):
+            ws.cell(k, c, v)._style = estilo[c]
+    fin_esc = max(len(escaneos) + 1, fin_tabla)
+    tabla.ref = f"A1:N{fin_esc}"
+    for dv in ws.data_validations.dataValidation:
+        col = re.match(r"[A-Z]+", str(dv.sqref)).group(0)
+        dv.sqref = openpyxl.worksheet.cell_range.MultiCellRange(f"{col}2:{col}{fin_esc}")
     ws = wb["Historial de Escaneos"]
-    folios = set(escaneos["Folio de Escaneo"])
-    filas = []
-    for r in range(4, ws.max_row + 1):
-        if ws.cell(r, 3).value in folios:
-            filas.append([ws.cell(r, c).value for c in range(1, 10)])
     estilo = {c: ws.cell(4, c)._style for c in range(1, 10)}
     limpiar_desde(ws, 4)
-    for k, valores in enumerate(filas, start=4):
+    for k, valores in enumerate(historial, start=4):
         for c, v in enumerate(valores, start=1):
-            if isinstance(v, str) and v.startswith("="):
-                v = re.sub(r"(?<![$A-Z])C\d+\b", f"C{k}", v)
             ws.cell(k, c, v)._style = estilo[c]
+
+    # Escaneo Diario: las búsquedas contra Productos cubren todas las filas de la marca.
+    ws = wb["Escaneo Diario"]
+    for c in "DEFGHIJ":
+        ws[f"{c}7"] = ajustar_rangos(texto_formula(ws[f"{c}7"].value), "Productos", n)
+
+    # Stock por Ubicación: la fórmula A2 de la plantilla lo arma desde Productos y Escaneos.
+    # Arriba de LIMITE_FORMULAS se escribe ya calculado (mismas columnas y orden): su
+    # REDUCE/VSTACK crece con el cuadrado de los renglones y Sheets no lo termina.
+    stock = stock_desde_productos(productos, escaneos, bodegas)
+    m = len(stock) + 1
+    ws = wb["Stock por Ubicación"]
+    estilo = {c: ws.cell(2, c)._style for c in range(1, 12)}
+    ancla = texto_formula(ws["A2"].value)
+    limpiar_desde(ws, 2)
+    if vivas:
+        ancla = ajustar_rangos(ancla, "Productos", n)
+        ancla = ajustar_rangos(ancla, "Escaneos", fin_esc, 24792)
+        ancla = con_valor(ancla, stock[0][0] if stock else "")
+    for k, valores in enumerate(stock, start=2):
+        for c, v in enumerate(valores, start=1):
+            if vivas:
+                v = ancla if (k, c) == (2, 1) else calculado(v)
+            ws.cell(k, c, v if v != "" else None)._style = estilo[c]
+    if vivas and not stock:
+        ws.cell(2, 1, ancla)._style = estilo[1]
+
+    # Bodegas: el filtro por bodega es una fórmula de Sheets sobre Stock por Ubicación.
+    fin_stock = m + 1000  # Margen para los renglones de nuevos escaneos.
+    for nombre in ("Bodega 25", "Bodega 43"):
+        ws = wb[nombre]
+        ancla = texto_formula(ws["A6"].value)
+        totales = {c: ws[c].value for c in ("E3", "G3")}
+        estilo = {c: ws.cell(6, c)._style for c in range(1, 10)}
+        limpiar_desde(ws, 6)
+        # Resultado calculado del filtro (columnas 1, 10, 2, 3, 8, 4, 5, 9, 6 de Stock por
+        # Ubicación, ordenado por ubicación y SKU), como en la plantilla.
+        renglones = sorted(([r[j] for j in (0, 9, 1, 2, 7, 3, 4, 8, 5)] for r in stock
+                            if r[10] == ws["B3"].value and r[5] > 0),
+                           key=lambda r: (str(r[0]).lower(), str(r[3]).lower()))
+        renglones = renglones or [["Sin existencias en esta bodega"]]
+        for k, valores in enumerate(renglones, start=6):
+            for c, v in enumerate(valores, start=1):
+                ws.cell(k, c, calculado(v))._style = estilo[c]
+        ancla = ajustar_rangos(ancla, "'Stock por Ubicación'", fin_stock)
+        ws["A6"] = con_valor(ancla, renglones[0][0])
+        for c, f in totales.items():
+            ws[c] = re.sub(r"I6:I\d+", f"I6:I{fin_stock + 4}", f)
 
     # Revisión Duplicados: grupos del Cíclico y registros iguales integrados en uno.
     ws = wb["Revisión Duplicados"]
@@ -1113,12 +1254,22 @@ def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, stock, escaneo
         for c, v in enumerate(fila, start=1):
             col = (["Grupo", "Fuente", "Motivo"] + columnas)[c - 1]
             ws.cell(k, c, a_celda(col, str(v)) if c > 3 else v)._style = estilo[c]
-    ws.auto_filter.ref = f"A1:AU{max(len(duplicados) + 1, 2)}"
+    # La lista de estilos del filtro (H4) es la de la marca; una lista fija admite 255 caracteres.
+    lista = "Todos los estilos"
+    for e in sorted({str(f[6]) for f in duplicados if f[6]}):
+        if len(lista) + len(e) + 1 > 253:
+            break
+        lista += "," + e
+    for dv in ws.data_validations.dataValidation:
+        if str(dv.sqref) == "H4":
+            dv.formula1 = f'"{lista}"'
 
     if inventario:
         inv.escribir_inventario(wb, *inventario, grupo)
     wb.properties.creator = AUTOR
+    ruta.parent.mkdir(parents=True, exist_ok=True)
     wb.save(ruta)
+    return stock
 
 
 def main():
@@ -1236,31 +1387,28 @@ def main():
     print(f"Inventario ligado: NetSuite {detalle_ns['uid'].notna().mean():.1%} de renglones, "
           f"Shopify Ariat {shopify_ariat['uid'].notna().mean():.1%}")
 
-    stock = inv.stock_por_ubicacion(detalle_ns, stock_ciclico, shopify_ariat)
-    stock = stock[list(hojas["Stock por Ubicación"].columns) + ["uid"]]
-    stock["Libro"] = stock["uid"].map(libro_uid).fillna(stock["WB Marca"].map(grupo_de))
     ubic_info = {}
     for _, u in ubicaciones_ns.iterrows():
         tipo = criterios["bodegas"].get(u["Ubicación corta"]) or u["Tipo"]
         ubic_info[u["Ubicación corta"]] = {"tipo": tipo, "activa": u["Activa"]}
-    escaneos = hojas["Escaneos"].copy()
-    escaneos["Piezas Contadas"] = inv.numero(escaneos["Piezas Contadas"])
+    escaneos_carpeta, (escaneos, historial) = leer_escaneos()
     escaneos["uid"] = escaneos["UPC CODE"].str.lstrip("0").map(llave_cb)
     escaneos["Libro"] = escaneos["uid"].map(libro_uid).fillna(escaneos["Marca"].map(grupo_de))
+    escaneos = escaneos[~escaneos["Libro"].map(slug).isin(escaneos_carpeta)]
+    for carpeta, (tabla, _) in escaneos_carpeta.items():
+        tabla["uid"] = tabla["UPC CODE"].str.lstrip("0").map(llave_cb)
+        tabla["Libro"] = next((l for l in libro_uid.unique() if slug(l) == carpeta), carpeta)
+    escaneos = pd.concat([escaneos] + [t for t, _ in escaneos_carpeta.values()], ignore_index=True)
     dup = hojas["Revisión Duplicados"]
     # Un grupo de duplicados va completo a cada archivo de las marcas que toca.
     libros_grupo = dup.assign(L=dup["WB Marca"].map(grupo_de)).groupby("Grupo")["L"].agg(set)
 
-    if not sys.argv[1:]:
-        for viejo in BASE.glob("Ciclico_1522_*.xlsx"):
-            if viejo not in (CICLICO, PLANTILLA):
-                viejo.unlink()
     resumen = []
     solo = sys.argv[1:]  # Opcional: generar solo estas marcas, p. ej. «Stetson Roper».
     for grupo, filas in variantes.groupby("Libro", sort=False):
         if solo and slug(grupo) not in solo and grupo not in solo:
             continue
-        ruta = BASE / f"Ciclico_1522_{slug(grupo)}.xlsx"
+        ruta = CARPETA / slug(grupo) / f"Ciclico_1522_{slug(grupo)}.xlsx"
         vivas = len(filas) <= LIMITE_FORMULAS
         filas = filas.copy()
         if not vivas:
@@ -1280,18 +1428,21 @@ def main():
                                   f"{MARCA_NOTA}: mismo producto ({motivo})"]
                                  + [reg.get(c, "") for c in columnas])
             siguiente += 1
-        stock_marca = stock[stock["Libro"] == grupo][
-            list(hojas["Stock por Ubicación"].columns) + ["uid"]]
         escaneos_marca = escaneos[escaneos["Libro"] == grupo]
+        if slug(grupo) in escaneos_carpeta:
+            historial_marca = escaneos_carpeta[slug(grupo)][1]
+        else:
+            folios = set(escaneos_marca["Folio de Escaneo"])
+            historial_marca = [h for h in historial if h[2] in folios]
         inventario, ubicaciones, tiendas, pedido = inv.tabla_inventario(
             filas, detalle_ns, anterior_total, plataformas, shopify_ariat, escaneos)
         movimientos = inv.movimientos_por_ubicacion(detalle_ns, anterior_ubicacion, uids)
-        escribir_ciclico(ruta, plantilla, grupo, filas, columnas, stock_marca,
-                         escaneos_marca, filas_dup, vivas,
-                         (inventario, ubicaciones, tiendas, pedido, ubic_info, movimientos))
+        stock_marca = escribir_ciclico(
+            ruta, plantilla, grupo, filas, columnas, escaneos_marca, historial_marca, filas_dup,
+            vivas, (inventario, ubicaciones, tiendas, pedido, ubic_info, movimientos))
         estatus = filas["Estatus G1522"].value_counts()
-        resumen.append({"Archivo": ruta.name, "Variantes": len(filas),
-                        "Fórmulas vivas": "Sí" if vivas else "Validación calculada",
+        resumen.append({"Archivo": str(ruta.relative_to(BASE)), "Variantes": len(filas),
+                        "Fórmulas vivas": "Sí" if vivas else "Validación y stock calculados",
                         "Válido": int(estatus.get("Válido", 0)),
                         "Válido con avisos": int(estatus.get("Válido con avisos", 0)),
                         "Con incidencias": int(estatus.get("Con incidencias", 0)),
@@ -1302,6 +1453,10 @@ def main():
                         "MB": round(ruta.stat().st_size / 1e6, 2)})
         print(resumen[-1], flush=True)
     print(pd.DataFrame(resumen).to_string(index=False))
+    if not solo:  # Los Cíclicos de la raíz ya quedaron en su carpeta por marca.
+        for viejo in BASE.glob("Ciclico_1522_*.xlsx"):
+            if viejo != CICLICO:
+                viejo.unlink()
 
 
 if __name__ == "__main__":

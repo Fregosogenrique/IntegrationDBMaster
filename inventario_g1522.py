@@ -64,6 +64,21 @@ def leer_netsuite():
     for c in CANTIDADES:
         detalle[c] = numero(detalle[c])
     detalle["Ubicación corta"] = detalle["Ubicación"].map(ubicacion_corta)
+    # Las ubicaciones del artículo con el formato del Cíclico, «UBICACIÓN (n); …», y el nombre
+    # corto de Criterios › 9: así las lee la fórmula de la hoja Stock por Ubicación. El
+    # catálogo de NetSuite las trae como «Bodega : Ubicación: n | …».
+    if detalle["Ubicación corta"].str.contains(r"[()]").any():
+        raise ValueError("Ubicación de NetSuite con paréntesis: la fórmula de Stock por Ubicación no la lee")
+    for columna, signo in (("Ubicaciones con stock (NetSuite)", 1), ("Ubicaciones con existencia negativa", -1)):
+        d = detalle[detalle["En mano"] * signo > 0]
+        texto = (d["Ubicación corta"] + " (" + d["En mano"].map("{:g}".format) + ")") \
+            .groupby(d["Identificador interno"]).agg("; ".join)
+        catalogo[columna] = catalogo["Identificador interno"].map(texto).fillna("")
+    suma = detalle.groupby("Identificador interno")["En mano"].sum()
+    distintos = (catalogo["Identificador interno"].map(suma).fillna(0)
+                 != numero(catalogo["Stock Sistema NetSuite"])).sum()
+    if distintos:
+        raise ValueError(f"{distintos} artículos de NetSuite no cuadran con su detalle por ubicación")
     ubicaciones = leer("Ubicaciones")
     ubicaciones = ubicaciones[ubicaciones["ID interno"].str.fullmatch(r"\d+")]
     ubicaciones["Ubicación corta"] = ubicaciones["Ubicación (etiqueta en este libro)"].map(
@@ -132,7 +147,11 @@ def actualizar_existencias(productos, catalogo, atributos, cambiar, rev, siguien
         productos.loc[fuera, c] = ""
     productos.loc[fuera, "¿Alguna ubicación en negativo?"] = "No"
 
-    conocidos_cb = set(productos["Código de barras"].str.lstrip("0")) - {""}
+    # Un artículo nuevo de NetSuite cuyo código ya está en el Cíclico es ese mismo artículo
+    # sin ID. Los nuevos agregados en una corrida anterior no cuentan: dos artículos
+    # distintos de NetSuite pueden compartir código (p. ej. 7506499570848, Denver y Stetson).
+    previos = productos[~productos["Origen del registro"].str.startswith(f"Nuevo – NetSuite {CORTE_NS}")]
+    conocidos_cb = set(previos["Código de barras"].str.lstrip("0")) - {""}
     nuevos = catalogo[~catalogo["Identificador interno"].isin(productos["Identificador interno"])
                       & ~catalogo["Código de barras"].str.lstrip("0").isin(conocidos_cb)].copy()
     nuevos["Origen del registro"] = f"Nuevo – NetSuite {CORTE_NS}"

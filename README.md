@@ -14,7 +14,7 @@ Normalizacion de datos y homologacion
 | `Informe_homologacion_Ariat_G1522.md` | Reglas aplicadas, resultados y pendientes |
 | `Ciclico_1522_investigado.xlsx` | Cíclico integrado: catálogo NetSuite con Shopify Stetson, Shopify WB, Odoo, stock y escaneos (origen) |
 | `homologar_ciclico_g1522.py` | Homologa el Cíclico con Criterios y los validadores, integra productos iguales y genera un Cíclico por marca |
-| `Ciclico_1522_<Marca>.xlsx` | Un Cíclico por marca para Google Sheets, con la estructura de `Ciclico_1522_Stetson.xlsx` (12 hojas, mismas columnas, fórmulas, validaciones y formatos) más las hojas «Inventario» y «KPIs Inventario» con el inventario actual. Montana West y Wrangler en un solo archivo |
+| `Bases_Sheets_G1522/<Marca>/Ciclico_1522_<Marca>.xlsx` | Un Cíclico por marca para Google Sheets, en su carpeta, con el mismo formato que `Bases_Sheets_G1522/Stetson/Ciclico_1522_Stetson.xlsx`: las 12 hojas, columnas, fórmulas de Sheets, listas, formatos y tablas que usan los scripts, más las hojas «Inventario» y «KPIs Inventario» con el inventario actual. Montana West y Wrangler en un solo archivo |
 | `Catalogo_Estandar_Inventario_NetSuite_2026-10-06.xlsx` | Catálogo e inventario de NetSuite al 06/10/2026 (origen del inventario actual) |
 | `inventario_g1522.py` | Homologa el inventario de NetSuite, Shopify Ariat, plataformas y escaneos en cada Cíclico por marca |
 | `investigar_web_g1522.py` | Consulta las tiendas y sitios oficiales de cada marca y traduce lo publicado a los valores de Criterios |
@@ -36,4 +36,4 @@ python3 investigar_web_g1522.py      # opcional: actualiza Investigacion_web_G15
 python3 homologar_ciclico_g1522.py   # o solo algunas marcas: python3 homologar_ciclico_g1522.py Stetson Roper
 ```
 
-Usa `Ciclico_1522_investigado.xlsx`, `Catalogo_Estandar_Inventario_NetSuite_2026-10-06.xlsx` y `Products.csv` (inventario), `Base_Unificada_Ariat_G1522.xlsx` (evidencia de la tienda Ariat) y `Ciclico_1522_Stetson.xlsx` como plantilla. Las correcciones hechas a mano en cualquier `Ciclico_1522_<Marca>.xlsx` se conservan al regenerar. Los archivos se trabajan en Google Sheets: las fórmulas de Productos_Resumen y las Bodegas son de Sheets.
+Usa `Ciclico_1522_investigado.xlsx`, `Catalogo_Estandar_Inventario_NetSuite_2026-10-06.xlsx` y `Products.csv` (inventario), `Base_Unificada_Ariat_G1522.xlsx` (evidencia de la tienda Ariat) y `Bases_Sheets_G1522/Stetson/Ciclico_1522_Stetson.xlsx` como plantilla de formato. Las correcciones hechas a mano en los atributos de cualquier `Bases_Sheets_G1522/<Marca>/Ciclico_1522_<Marca>.xlsx` y sus escaneos se conservan al regenerar. Los archivos se trabajan en Google Sheets: las fórmulas de Escaneo Diario, Productos_Resumen, Stock por Ubicación y las Bodegas son de Sheets.
