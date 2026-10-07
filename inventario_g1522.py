@@ -116,7 +116,7 @@ def leer_shopify_ariat():
 # --------------------------------------------------------------------------
 
 def actualizar_existencias(productos, catalogo, atributos, cambiar, rev, siguiente_uid,
-                           anterior_por_id):
+                           anterior_por_id, sustitutos=frozenset()):
     """Existencias de Productos al corte NetSuite 06/10; agrega los artículos nuevos.
 
     La existencia 28/09 (suma por ubicación del Cíclico) queda en «_ns_anterior» para medir
@@ -134,7 +134,8 @@ def actualizar_existencias(productos, catalogo, atributos, cambiar, rev, siguien
         if c not in ns.columns:
             continue
         nuevo = ids.map(ns[c])
-        for i in nuevo.index[(productos.loc[hay, c] == "") & (nuevo != "")]:
+        # «(blank)» y demás textos sustitutos de NetSuite no son un dato.
+        for i in nuevo.index[(productos.loc[hay, c] == "") & (nuevo != "") & ~nuevo.isin(sustitutos)]:
             cambiar(productos, i, c, nuevo[i], rev, "Completado desde NetSuite",
                     f"Campo vacío capturado en NetSuite al {CORTE_NS}",
                     f"NetSuite ID interno {productos.at[i, 'Identificador interno']}")

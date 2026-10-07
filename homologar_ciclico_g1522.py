@@ -1306,7 +1306,7 @@ def main():
         ns_anterior["Identificador interno"]).sum().to_dict()
     shopify_ariat = inv.leer_shopify_ariat()
     productos = inv.actualizar_existencias(productos, catalogo_ns, ATRIBUTOS, cambiar, rev,
-                                           len(productos), anterior_por_id)
+                                           len(productos), anterior_por_id, g.TEXTOS_SUSTITUTOS)
 
     base_ariat, rev_ariat = leer_ariat()
     productos, ariat = integrar_base_ariat(productos, base_ariat, rev_ariat, rev)
