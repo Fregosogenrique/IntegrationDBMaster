@@ -139,6 +139,12 @@ Válido, con avisos y con incidencias corresponden a la validación G1522 comple
 Cada Cíclico por marca trae todos sus artículos ordenados con la estructura de `Anatomia_productos_atributos_G1522.md`. Tiene el formato de Productos de la plantilla: Arial 10, encabezado azul marino, código de barras como texto y precios en pesos. Sirve para filtrar en Sheets.
 
 - **Padre (modelo):** se identifica por WB Marca y WB N.º de estilo («Modelo (padre)»). Lleva los atributos de nivel padre del diccionario: marca principal, marca, descripción, división, categoría, género, licencia, temporada, ciclo de vida, fit, silueta, composición, descripción larga, país de origen, clave SAT e imagen. Agrega la familia de talla que le corresponde por categoría y género (Criterios › 3 y 8) y cuántas variantes tiene. El renglón va en negritas, con fondo azul claro.
+- **¿Dado de alta en NetSuite?:** dice si cada variante existe en NetSuite, contra el catálogo del 06/10, que trae todos los artículos de inventario activos (con y sin existencia). «ID interno NetSuite» da el artículo encontrado.
+  - «Sí»: su ID interno es un artículo activo de NetSuite.
+  - «Sí, por código de barras» o «Sí, por SKU»: NetSuite lo tiene con otro ID; conviene ligar el ID.
+  - «No: ya no está activo en NetSuite»: venía de NetSuite, pero su ID ya no está activo.
+  - «No»: no está dado de alta (por ejemplo, altas de Shopify, Odoo o las cargas Hoja2 y Hoja3).
+  - En el padre: «Sí» si todas sus variantes están dadas de alta, «No» si ninguna, o «Parcial: x de n variantes».
 - **Variante vendible:** va debajo de su padre, agrupada (se puede contraer en Sheets). Lleva código de barras, WB SKU, ID interno, talla, talla de EE. UU., color, unidad y precios.
 - **Unidad física:** no se individualiza; cada variante muestra sus piezas en NetSuite y en plataformas. En el padre son la suma de sus variantes, con fórmula `SUM`.
 - **Herencia:** un atributo de padre que cambia entre variantes no se sobrescribe. El padre lo deja vacío y cada variante conserva su valor, como pide la Anatomía (por ejemplo, imágenes distintas por color).

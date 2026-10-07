@@ -33,7 +33,12 @@ REQUERIDOS_PADRE = ["WB Marca", "WB Descripcion", "WB División", "WB Categoría
 CATEGORIAS_FIT = {"Ropa", "Denim"}  # Por división.
 CATEGORIAS_SILUETA = {"Sombreros", "Botas", "Zapatos", "Jeans"}
 
-COLUMNAS = (["Nivel", "Modelo (padre)", "Variantes del modelo"] + PADRE[:7]
+# Orígenes del Cíclico cuyo «Identificador interno» es un ID de NetSuite.
+ORIGEN_NETSUITE = ("Catálogo existente", "Nuevo – NetSuite", "Hoja a Revisar")
+ALTA = "¿Dado de alta en NetSuite?"
+ID_NETSUITE = "ID interno NetSuite"
+
+COLUMNAS = (["Nivel", "Modelo (padre)", "Variantes del modelo", ALTA, ID_NETSUITE] + PADRE[:7]
             + ["Familia de talla"] + PADRE[7:] + VARIANTE
             + ["Piezas en NetSuite", "Piezas en plataformas", "Revisión de anatomía"])
 NUMERICAS = {"Variantes del modelo", "Precio de compra", "Precio de venta", "Piezas en NetSuite",
@@ -52,17 +57,54 @@ def piezas_plataformas(texto):
     return sum(numero(p.rpartition(":")[2]) for p in texto.split(" | ") if ":" in p)
 
 
-def tabla_anatomia(variantes, familias_de, criterios):
+def indice_netsuite(catalogo):
+    """Llaves de los artículos dados de alta en NetSuite: el catálogo estándar trae todos
+    los artículos de inventario activos (con y sin existencia)."""
+    activos = catalogo[catalogo["Identificador interno"] != ""]
+    por_cb, por_sku = {}, {}
+    for i, cb, sku in zip(activos["Identificador interno"], activos["Código de barras"], activos["WB SKU"]):
+        if cb.lstrip("0"):
+            por_cb.setdefault(cb.lstrip("0"), i)
+        if sku:
+            por_sku.setdefault(sku.upper(), i)
+    return {"ids": set(activos["Identificador interno"]), "cb": por_cb, "sku": por_sku}
+
+
+def alta_netsuite(r, netsuite):
+    """(estado, ID de NetSuite) de una variante: por su ID interno; si no, por su código de
+    barras (o uno alterno) o su SKU, que en NetSuite pueden estar en un artículo con otro ID."""
+    ident = r["Identificador interno"]
+    if ident in netsuite["ids"]:
+        return "Sí", ident
+    codigos = [r["Código de barras"]] + str(r.get("Códigos de barras alternos", "")).split(" | ")
+    for cb in codigos:
+        if cb.lstrip("0") in netsuite["cb"]:
+            return "Sí, por código de barras", netsuite["cb"][cb.lstrip("0")]
+    if r["WB SKU"].upper() in netsuite["sku"]:
+        return "Sí, por SKU", netsuite["sku"][r["WB SKU"].upper()]
+    if ident and r["Origen del registro"].startswith(ORIGEN_NETSUITE):
+        return "No: ya no está activo en NetSuite", ""
+    return "No", ""
+
+
+def tabla_anatomia(variantes, familias_de, criterios, netsuite=None):
     """Renglones de la hoja: cada padre seguido de sus variantes.
 
     «familias_de(categoría, género, criterios)» da las familias de talla válidas
-    (Criterios › 3 y 8)."""
+    (Criterios › 3 y 8); «netsuite» (indice_netsuite) dice qué variantes están dadas de
+    alta en NetSuite."""
     v = variantes.reset_index(drop=True).copy()
     sin_estilo = v["WB N.º de estilo"] == ""
     # Sin estilo no hay llave de padre: se agrupa por la descripción del modelo y se anota.
     v["_modelo"] = v["WB Marca"] + " · " + v["WB N.º de estilo"].where(
         ~sin_estilo, "Sin estilo · " + v["WB Descripcion"].where(v["WB Descripcion"] != "", v["WB SKU"]))
     v["_orden"] = range(len(v))
+    if netsuite is not None:
+        altas = [alta_netsuite(r, netsuite) for _, r in v.iterrows()]
+        v["_alta"] = [a for a, _ in altas]
+        v["_id_ns"] = [i for _, i in altas]
+    else:
+        v["_alta"] = v["_id_ns"] = ""
     division_de = {c: d for c, d in criterios.get("divisiones", {}).items()}
 
     padres = []
@@ -104,13 +146,18 @@ def tabla_anatomia(variantes, familias_de, criterios):
         nacional = sum(numero(x) for x in grupo["Stock Sistema NetSuite"])
         plataformas = sum(piezas_plataformas(x) for x in grupo["Ubicaciones con stock (plataformas)"])
 
+        dadas = int(grupo["_alta"].str.startswith("Sí").sum())
+        alta = "" if netsuite is None else ("Sí" if dadas == len(grupo) else "No" if not dadas
+                                            else f"Parcial: {dadas} de {len(grupo)} variantes")
         padre = {"Nivel": "Padre", "Modelo (padre)": modelo, "Variantes del modelo": len(grupo),
+                 ALTA: alta,
                  "Familia de talla": familia, "Piezas en NetSuite": nacional,
                  "Piezas en plataformas": plataformas, "Revisión de anatomía": " · ".join(revision)}
         padre.update(comun)
         filas.append(padre)
         for _, r in grupo.sort_values("_orden").iterrows():
-            variante = {"Nivel": "Variante", "Modelo (padre)": modelo}
+            variante = {"Nivel": "Variante", "Modelo (padre)": modelo, ALTA: r["_alta"],
+                        ID_NETSUITE: r["_id_ns"]}
             variante.update({c: r[c] for c in distintos})  # La diferencia se queda en la variante.
             variante.update({c: r[c] for c in VARIANTE})
             for c in ("Precio de compra", "Precio de venta"):
@@ -145,7 +192,9 @@ def escribir_anatomia(wb, tabla):
     cifra = productos.cell(2, columna_de["Stock Sistema NetSuite"])._style
     estilo = []
     for c in COLUMNAS:
-        if c in columna_de:
+        if c == ID_NETSUITE:
+            estilo.append(productos.cell(2, columna_de["Identificador interno"])._style)
+        elif c in columna_de:
             estilo.append(productos.cell(2, columna_de[c])._style)
         else:
             estilo.append(cifra if c in NUMERICAS else texto)
@@ -180,7 +229,7 @@ def escribir_anatomia(wb, tabla):
             ws.row_dimensions[k].outlineLevel = 1  # Variantes agrupadas bajo su padre.
     anchos = {"Nivel": 10, "Modelo (padre)": 34, "Variantes del modelo": 11, "WB Descripcion": 40,
               "WB Descripción larga": 50, "Enlace de imagen": 30, "Familia de talla": 30,
-              "Revisión de anatomía": 60, "Código de barras": 16, "WB SKU": 24}
+              "Revisión de anatomía": 60, "Código de barras": 16, "WB SKU": 24, ALTA: 24}
     for j, c in enumerate(COLUMNAS, start=1):
         ws.column_dimensions[letra(j)].width = anchos.get(c, 13 if c in NUMERICAS else 18)
     ws.sheet_properties.outlinePr.summaryBelow = False  # El padre va arriba de su grupo.
@@ -190,8 +239,10 @@ def escribir_anatomia(wb, tabla):
 
 def resumen(tabla):
     padres = tabla[tabla["Nivel"] == "Padre"]
-    return {"padres": len(padres), "variantes": int((tabla["Nivel"] == "Variante").sum()),
-            "padres_revision": int((padres["Revisión de anatomía"] != "").sum())}
+    variantes = tabla[tabla["Nivel"] == "Variante"]
+    return {"padres": len(padres), "variantes": len(variantes),
+            "padres_revision": int((padres["Revisión de anatomía"] != "").sum()),
+            "en_netsuite": int(variantes[ALTA].str.startswith("Sí").sum())}
 
 
 if __name__ == "__main__":  # Vista previa sobre un Cíclico ya generado.

@@ -1307,6 +1307,7 @@ def main():
     # Inventario al corte más reciente (NetSuite 06/10) y artículos nuevos de NetSuite.
     catalogo_ns, detalle_ns, ubicaciones_ns = inv.leer_netsuite()
     IDS_NETSUITE.update(set(catalogo_ns["Identificador interno"]) - {""})
+    netsuite = anat.indice_netsuite(catalogo_ns)  # Artículos dados de alta (activos).
     # Existencia del corte anterior por artículo: la suma de su desglose por ubicación en el
     # Cíclico (la columna «Stock Sistema NetSuite» de Productos no cuadra con ese desglose en
     # Happy Socks, CAPSLAB y REFLO).
@@ -1458,7 +1459,7 @@ def main():
         inventario, ubicaciones, tiendas, pedido = inv.tabla_inventario(
             filas, detalle_ns, anterior_total, plataformas, shopify_ariat, escaneos)
         movimientos = inv.movimientos_por_ubicacion(detalle_ns, anterior_ubicacion, uids)
-        anatomia = anat.tabla_anatomia(filas, familias_de, criterios)
+        anatomia = anat.tabla_anatomia(filas, familias_de, criterios, netsuite)
         stock_marca = escribir_ciclico(
             ruta, plantilla, grupo, filas, columnas, escaneos_marca, historial_marca, filas_dup,
             vivas, (inventario, ubicaciones, tiendas, pedido, ubic_info, movimientos),
@@ -1473,6 +1474,7 @@ def main():
                         "Stock por ubicación": len(stock_marca), "Escaneos": len(escaneos_marca),
                         "Artículos en Inventario": len(inventario),
                         "Modelos (Anatomía)": anat.resumen(anatomia)["padres"],
+                        "Variantes en NetSuite": anat.resumen(anatomia)["en_netsuite"],
                         "En mano NetSuite": int(inventario["En mano NetSuite"].sum()),
                         "MB": round(ruta.stat().st_size / 1e6, 2)})
         print(resumen[-1], flush=True)
