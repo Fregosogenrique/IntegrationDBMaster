@@ -273,7 +273,12 @@ def aplicar_ciclicos_por_marca(productos):
                 fila["Notas de enriquecimiento / revisión"], MARCA_NOTA)
             productos.loc[destino, "_fuente_previa"] = segmento(fila["Fuentes de consulta"], MARCA_WEB)
     if nuevas:
-        productos = pd.concat([productos, pd.DataFrame(nuevas)], ignore_index=True).fillna("")
+        nuevas = pd.DataFrame(nuevas)
+        # Las filas que agregó una corrida anterior también conservan lo ya explicado.
+        nuevas["_nota_previa"] = nuevas["Notas de enriquecimiento / revisión"].map(
+            lambda x: segmento(x, MARCA_NOTA))
+        nuevas["_fuente_previa"] = nuevas["Fuentes de consulta"].map(lambda x: segmento(x, MARCA_WEB))
+        productos = pd.concat([productos, nuevas], ignore_index=True).fillna("")
     print(f"Cíclicos por marca: {len(usadas)} filas actualizadas, {len(nuevas)} nuevas")
     return productos
 
@@ -1007,8 +1012,18 @@ def nota_homologacion(uid, cambios, r):
     previa = re.sub(rf"^{MARCA_NOTA} [\d/]+: ", "", r.get("_nota_previa", "") or "")
     partes = [x for x in previa.split(" · ") if x and not x.startswith(("Validación G1522",
                                                                        "Validador "))]
+    # Un campo que termina con el valor con que empezó (p. ej. NetSuite llena una Silueta
+    # que Criterios vuelve a vaciar) no cambió: no se anota.
+    inicio, fin = {}, {}
+    for c in cambios.get(uid, []):
+        if c["Valor final"] != c["Valor origen"]:
+            inicio.setdefault(c["Campo"], c["Valor origen"])
+            fin[c["Campo"]] = c["Valor final"]
+    sin_cambio = {campo for campo in fin if fin[campo] == inicio[campo]}
     for c in cambios.get(uid, []):
         if c["Tipo"] == "Productos integrados":
+            continue
+        if c["Campo"] in sin_cambio and c["Valor final"] != c["Valor origen"]:
             continue
         if c["Valor final"] != c["Valor origen"]:
             partes.append(f"{c['Campo']}: «{c['Valor origen']}» → «{c['Valor final']}» ({c['Tipo']})")
