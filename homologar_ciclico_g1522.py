@@ -42,6 +42,7 @@ from pathlib import Path
 import pandas as pd
 
 import homologar_ariat_g1522 as g
+import anatomia_g1522 as anat
 import inventario_g1522 as inv
 
 BASE = Path(__file__).resolve().parent
@@ -296,7 +297,9 @@ def leer_criterios(criterios):
     · 9 Ubicaciones: bodega (25 / 43) de cada ubicación, columnas G y K.
     · 12 Listas automáticas: valores de los desplegables de Productos, columnas S a AD.
     """
-    familias = {r[0]: r[2] for r in seccion(criterios, "3. CATEG", 3)}
+    categorias = seccion(criterios, "3. CATEG", 3)
+    familias = {r[0]: r[2] for r in categorias}
+    divisiones = {r[0]: r[1] for r in categorias}
     tallas = [(r[0], r[1], r[2]) for r in seccion(criterios, "8. CAT", 3)]
     encabezado = criterios.index[criterios[6] == "Ubicación"][0]
     bodegas = {r[6]: r[10] for _, r in criterios.loc[encabezado + 1:].iterrows()
@@ -305,7 +308,8 @@ def leer_criterios(criterios):
     for j in range(18, 30):
         valores = [v for v in criterios.loc[encabezado:, j] if v]
         listas[valores[0]] = [v for v in valores[1:] if v not in g.TEXTOS_SUSTITUTOS]
-    return {"familias": familias, "tallas": tallas, "bodegas": bodegas, "listas": listas,
+    return {"familias": familias, "divisiones": divisiones, "tallas": tallas, "bodegas": bodegas,
+            "listas": listas,
             "parejas": {(mx, us) for _, mx, us in tallas}}
 
 
@@ -1134,7 +1138,7 @@ def stock_desde_productos(filas, escaneos, bodegas):
 
 
 def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, escaneos, historial,
-                     duplicados, vivas, inventario=None):
+                     duplicados, vivas, inventario=None, anatomia=None):
     """Cíclico de la marca con la estructura de Bases_Sheets_G1522/Stetson: mismas hojas,
     fórmulas, listas, formatos y tablas; los rangos fijos se llevan al tamaño de la marca."""
     import openpyxl
@@ -1266,6 +1270,8 @@ def escribir_ciclico(ruta, plantilla, grupo, productos, columnas, escaneos, hist
 
     if inventario:
         inv.escribir_inventario(wb, *inventario, grupo)
+    if anatomia is not None:
+        anat.escribir_anatomia(wb, anatomia)
     wb.properties.creator = AUTOR
     ruta.parent.mkdir(parents=True, exist_ok=True)
     wb.save(ruta)
@@ -1437,9 +1443,11 @@ def main():
         inventario, ubicaciones, tiendas, pedido = inv.tabla_inventario(
             filas, detalle_ns, anterior_total, plataformas, shopify_ariat, escaneos)
         movimientos = inv.movimientos_por_ubicacion(detalle_ns, anterior_ubicacion, uids)
+        anatomia = anat.tabla_anatomia(filas, familias_de, criterios)
         stock_marca = escribir_ciclico(
             ruta, plantilla, grupo, filas, columnas, escaneos_marca, historial_marca, filas_dup,
-            vivas, (inventario, ubicaciones, tiendas, pedido, ubic_info, movimientos))
+            vivas, (inventario, ubicaciones, tiendas, pedido, ubic_info, movimientos),
+            anatomia)
         estatus = filas["Estatus G1522"].value_counts()
         resumen.append({"Archivo": str(ruta.relative_to(BASE)), "Variantes": len(filas),
                         "Fórmulas vivas": "Sí" if vivas else "Validación y stock calculados",
@@ -1449,6 +1457,7 @@ def main():
                         "Productos integrados": int((filas["Registros integrados"] != "").sum()),
                         "Stock por ubicación": len(stock_marca), "Escaneos": len(escaneos_marca),
                         "Artículos en Inventario": len(inventario),
+                        "Modelos (Anatomía)": anat.resumen(anatomia)["padres"],
                         "En mano NetSuite": int(inventario["En mano NetSuite"].sum()),
                         "MB": round(ruta.stat().st_size / 1e6, 2)})
         print(resumen[-1], flush=True)

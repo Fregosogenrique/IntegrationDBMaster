@@ -92,7 +92,7 @@ Los renglones de NetSuite y de Shopify Ariat quedaron ligados al 100 % a un art�
 
 Cada marca tiene su carpeta en `Bases_Sheets_G1522/`, igual que Stetson, y su archivo repite el formato de `Bases_Sheets_G1522/Stetson/Ciclico_1522_Stetson.xlsx` para que los scripts de Google Sheets funcionen igual en todas:
 
-- **Hojas:** las mismas 12, en el mismo orden, más «Inventario» y «KPIs Inventario» al final: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
+- **Hojas:** las mismas 12, en el mismo orden, más «Inventario», «KPIs Inventario» y «Anatomía de Productos» al final: Escaneo Diario, Historial de Escaneos, Escaneos, Configuración, Productos, Productos_Resumen, Criterios, Revisión Duplicados, Stock por Ubicación, Bodega 25, Bodega 43 y Resumen Integración.
 - **Productos:** las mismas 44 columnas, con una fila por variante. Los padres o agrupadores no van en Productos.
 - **Fórmulas de Sheets:** las mismas, con el formato en que Sheets las exporta (`__xludf.DUMMYFUNCTION` y `COMPUTED_VALUE`), para que Sheets las restaure al importar. El archivo ya trae el resultado calculado, así que se ve completo antes de recalcular.
   - Escaneo Diario: las búsquedas `MAP`/`XLOOKUP` contra Productos.
@@ -134,7 +134,18 @@ Válido, con avisos y con incidencias corresponden a la validación G1522 comple
 
 **Los archivos son la versión de trabajo.** Lo que se corrija a mano en los 26 atributos de cualquier `Bases_Sheets_G1522/<Marca>/Ciclico_1522_<Marca>.xlsx` se conserva al regenerar, igual que sus escaneos. Por ejemplo, se conservaron los SKU `2XL` → `XXL`, las licencias capturadas y el código de barras corregido de `9915500-BK-42` en Stetson. Existencias y ubicaciones se toman de las fuentes de inventario.
 
-## 3. Cómo se trató cada campo
+## 3. Hoja «Anatomía de Productos»
+
+Cada Cíclico por marca trae todos sus artículos ordenados con la estructura de `Anatomia_productos_atributos_G1522.md`. Tiene el formato de Productos de la plantilla: Arial 10, encabezado azul marino, código de barras como texto y precios en pesos. Sirve para filtrar en Sheets.
+
+- **Padre (modelo):** se identifica por WB Marca y WB N.º de estilo («Modelo (padre)»). Lleva los atributos de nivel padre del diccionario: marca principal, marca, descripción, división, categoría, género, licencia, temporada, ciclo de vida, fit, silueta, composición, descripción larga, país de origen, clave SAT e imagen. Agrega la familia de talla que le corresponde por categoría y género (Criterios › 3 y 8) y cuántas variantes tiene. El renglón va en negritas, con fondo azul claro.
+- **Variante vendible:** va debajo de su padre, agrupada (se puede contraer en Sheets). Lleva código de barras, WB SKU, ID interno, talla, talla de EE. UU., color, unidad y precios.
+- **Unidad física:** no se individualiza; cada variante muestra sus piezas en NetSuite y en plataformas. En el padre son la suma de sus variantes, con fórmula `SUM`.
+- **Herencia:** un atributo de padre que cambia entre variantes no se sobrescribe. El padre lo deja vacío y cada variante conserva su valor, como pide la Anatomía (por ejemplo, imágenes distintas por color).
+- **Revisión de anatomía:** en el padre anota lo que falta, los atributos de modelo distintos entre variantes (marca, división, categoría, género) y los que cambian y se conservan en la variante. También anota la división que no corresponde a la categoría y el fit o la silueta donde no aplican. En la variante anota la talla vacía y las incidencias de la validación G1522.
+- **Variantes sin WB N.º de estilo:** no tienen llave de padre, así que se agrupan por la descripción del modelo y se marcan para revisión.
+
+## 4. Cómo se trató cada campo
 
 Se respetan Criterios (hoja Criterios del Cíclico) y `Anatomia_productos_atributos_G1522.md`. El campo vacío queda realmente vacío, sin «No Aplica». Lo que no tiene evidencia no se inventa.
 
@@ -151,7 +162,7 @@ Se respetan Criterios (hoja Criterios del Cíclico) y `Anatomia_productos_atribu
 
 Cada cambio queda en «Notas de enriquecimiento / revisión» de su fila con este formato: `Homologación G1522 06/10/2026: campo «antes» → «después» (tipo)`. La misma nota trae la validación G1522, por ejemplo dígito de control inválido o costo posiblemente en dólares, y el resultado de los validadores NetSuite/Odoo y Shopify cuando fallan.
 
-## 4. Productos iguales integrados en uno
+## 5. Productos iguales integrados en uno
 
 Se funden en un registro (213 integraciones):
 
@@ -163,7 +174,7 @@ Si el SKU o el código coinciden pero el estilo, la talla o el color son distint
 
 Se conserva el registro con código válido y mejor origen. Sus campos vacíos se completan con los otros, las existencias se suman y las ubicaciones se unen. En «🔍 Panel de Duplicados» del registro conservado se indica cuántos integró y los códigos alternos. Los registros originales quedan completos en la hoja Revisión Duplicados, con la fuente «registro conservado» o «registro integrado».
 
-## 5. Investigación en línea
+## 6. Investigación en línea
 
 `investigar_web_g1522.py` descargó los catálogos públicos de las marcas y sus distribuidores y consultó ariat.com por número de estilo. Resultado: `Investigacion_web_G1522.csv`, con 33,562 datos de productos del catálogo; cada uno trae llave, campo, valor, URL y evidencia.
 
@@ -213,7 +224,7 @@ La URL queda en «Fuentes de consulta» de la fila: `Investigación en línea 06
 | CAPSLAB, Roper, Denver, Tru Western, Ranch & Corral, Yellowstone | No publican un catálogo consultable |
 | Ariat descontinuado | 3,254 estilos ya no están publicados en ariat.com |
 
-## 6. Revisión del archivo Cíclico
+## 7. Revisión del archivo Cíclico
 
 | Hallazgo | Detalle |
 |----|----|
@@ -226,7 +237,7 @@ La URL queda en «Fuentes de consulta» de la fila: `Investigación en línea 06
 | Costos que parecen estar en dólares | 7,053 (11 a 20 contra venta de ~1,449) |
 | Valores fuera de Criterios | `CORE`, `Pieza`, `MX`, `USA`, `(blank)`, `STETSON`, licencias con dos escrituras, coma decimal |
 
-## 7. Diferencias entre documentos
+## 8. Diferencias entre documentos
 
 Se siguieron Criterios y Anatomía, que son la autoridad de captura:
 
@@ -239,7 +250,7 @@ Se siguieron Criterios y Anatomía, que son la autoridad de captura:
 
 Las listas desplegables de la plantilla (Criterios 12) incluyen «No Aplica». Se dejaron como están para no cambiar la estructura, pero los datos usan vacío, como pide la Anatomía.
 
-## 8. Pendientes
+## 9. Pendientes
 
 1. Happy Socks: estilo, SKU, descripción y clasificación de 359 variantes, que en NetSuite solo tienen código de barras.
 2. REFLO: 367 variantes en la misma situación. La tienda solo cubrió las que siguen a la venta.
